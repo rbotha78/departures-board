@@ -23,6 +23,11 @@
  * VCC            3.3V
  * I/O            IO34
  *
+ * ESP32 Cheap Yellow Display (ESP32-2432S028R) with its integrated
+ * 320x240 TFT and XPT2046 touchscreen.
+ * Referenced from https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display
+ * Wiring and usage instructions can be found in the referenced repository.
+ * 
  */
 
 #include <Arduino.h>
@@ -130,20 +135,22 @@ static const char successPage[] =
 "<h2>Upload another file</h2><form method=\"post\" action=\"/upload\" enctype=\"multipart/form-data\"><input type=\"file\" name=\"name\"><input class=\"button\" type=\"submit\" value=\"Upload\"></form>\n"
 "</body></html>";
 
-#define SCREEN_WIDTH 256 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-#define DIMMED_BRIGHTNESS 1 // OLED display brightness level when in sleep/screensaver mode
+#define SCREEN_WIDTH 256 // Departures board virtual width, in pixels
+#define SCREEN_HEIGHT 64 // Departures board virtual height, in pixels
+#define DIMMED_BRIGHTNESS 20 // CYD display brightness level when in sleep/screensaver mode (0-255)
 
-U8G2_SSD1322_NHD_256X64_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ GPIO_NUM_26, /* dc=*/ GPIO_NUM_5, /* reset=*/ U8X8_PIN_NONE);
+#include "cydDisplay.h"
 
-// Vertical line positions on the OLED display (National Rail)
+U8G2_CYD_TFT u8g2;
+
+// Vertical line positions on the virtual departures-board display (National Rail)
 #define LINE0 0
 #define LINE1 13
 #define LINE2 28
 #define LINE3 41
 #define LINE4 55
 
-// Vertical line positions on the OLED display (Underground)
+// Vertical line positions on the virtual departures-board display (Underground)
 #define ULINE0 0
 #define ULINE1 15
 #define ULINE2 28
@@ -302,6 +309,11 @@ static const uint8_t UndergroundClock8[150] U8G2_FONT_SECTION("UndergroundClock8
   "\251\310\250\26\31\233\244\2\67\12G\305\70\310\204z\225\2\70\15G\305\251\310h\222\212\214MR\1\71"
   "\15G\305\251\310h\22+\215&\251\0:\6\262\257 \22\0\0\0";
 
+// Body font used for plain setup/notification screen text (no icon glyphs), per the configurable font style
+static const uint8_t *bodyFont() {
+  return (u8g2.getFontStyle() == CYD_FONT_UNDERGROUND) ? Underground10 : NatRailSmall9;
+}
+
 // Service attribution texts
 static const char nrAttributionn[] = "Powered by National Rail Enquiries";
 static const char rdgAttribution[] = "Powered by Rail Delivery Group";
@@ -361,7 +373,7 @@ static bool firmwareUpdates = true;        // Check for and install firmware upd
 static bool dailyUpdateCheck = false;      // Check for and install firmware updates at midnight?
 static byte sleepStarts = 0;               // Hour at which the overnight sleep (screensaver) begins
 static byte sleepEnds = 6;                 // Hour at which the overnight sleep (screensaver) ends
-static int brightness = 50;                // Initial brightness level of the OLED screen
+static int brightness = 50;                // Initial backlight brightness level
 static unsigned long lastWiFiReconnect=0;  // Last WiFi reconnection time (millis)
 static bool firstLoad = true;              // Are we loading for the first time (no station config)?
 static int prevProgressBarPosition=0;      // Used for progress bar smooth animation
@@ -390,7 +402,7 @@ static int nrTimeOffset = 0;               // Offset minutes for Rail departures
 static int prevUpdateCheckDay;             // Day of the month the last daily firmware update check was made
 static unsigned long fwUpdateCheckTimer=0; // Next time to check if the day has rolled over for firmware update check
 static bool apiKeys = false;               // Does apikeys.json exist?
-static bool touchEnabled = false;          // TTP223 Touch Sensor installed?
+static bool touchEnabled = true;           // Onboard XPT2046 Touch Screen & BOOT Button
 static bool useRDMclient = false;          // Use the new Rail Data Marketplace API instead of Darwin Lite
 static bool enableScheduler = false;
 static bool enableCarousel = false;
@@ -503,8 +515,8 @@ static String rssName;                                 // Name of feed for atrri
 static char rssMessage[MAXMESSAGESIZE] = "";           // Holds the current, formatted, RSS message
 
 
-// Optional TTP223 touch sensor / push button
-touchSensor button(GPIO_NUM_34);
+// CYD touchscreen and BOOT button
+touchSensor button(0);
 
 // FreeRTOS Task Handle and Status Flags
 TaskHandle_t fetchTaskHandle = NULL;
@@ -524,7 +536,7 @@ enum fetchModes {
 fetchModes fetchMode = FETCH_BOARD;
 
 /*
- * Graphics helper functions for OLED panel
+ * Graphics helper functions for the virtual departures-board display
 */
 void blankArea(int x, int y, int w, int h) {
   u8g2.setDrawColor(0);
@@ -578,7 +590,7 @@ void drawProgressBar(int percent) {
 }
 
 void progressBar(const char *text, int percent) {
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   blankArea(0,24,256,25);
   centreText(text,24);
   drawProgressBar(percent);
@@ -593,7 +605,7 @@ void drawFirmware() {
 void drawStartupHeading() {
   u8g2.setFont(NatRailTall12);
   centreText("Departures Board",0);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   drawFirmware();
 }
 
@@ -828,7 +840,7 @@ void showSetupScreen() {
   u8g2.clearBuffer();
   u8g2.setFont(NatRailTall12);
   centreText("Departures Board first-time setup",0);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("To configure Wi-Fi, please connect to the",18);
   centreText("the \"Departures Board\" network and go to",32);
   centreText("http://192.168.4.1 in a web browser.",46);
@@ -852,7 +864,7 @@ void showNoDataScreen() {
       break;
   }
   centreText(msg,-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("Please check you have selected a valid location",14);
   centreText("Go to the URL below to choose a location...",26);
   centreText(myUrl,40);
@@ -864,7 +876,7 @@ void showSetupKeysHelpScreen() {
   char msg[60];
   u8g2.setFont(NatRailTall12);
   centreText("Departures Board Setup",-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("Next, you need to enter your API keys.",16);
   centreText("Please go to the URL below to start...",28);
   u8g2.setFont(NatRailTall12);
@@ -877,7 +889,7 @@ void showSetupCrsHelpScreen() {
   char msg[60];
   u8g2.setFont(NatRailTall12);
   centreText("Departures Board Setup",-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("Next, you need to choose a location. Please",16);
   centreText("go to the URL below to choose a station...",28);
   u8g2.setFont(NatRailTall12);
@@ -889,7 +901,7 @@ void showWsdlFailureScreen() {
   u8g2.clearBuffer();
   u8g2.setFont(NatRailTall12);
   centreText("The National Rail data feed is unavailable.",-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("WDSL entry point could not be accessed, so the",14);
   centreText("Departures Board cannot be loaded.",26);
   centreText("Please try again later. :(",40);
@@ -917,7 +929,7 @@ void showTokenErrorScreen() {
       centreText("Access to the bustimes database denied.",-1);
       break;
   }
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("You must enter a valid api key, please",14);
   centreText("check you have entered it correctly below:",26);
   sprintf(msg,"%s/keys.htm",myUrl);
@@ -942,7 +954,7 @@ void showCRSErrorScreen() {
       break;
   }
   centreText(msg,-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("Please ensure you have selected a valid station.",14);
   centreText("Go to the URL below to choose a station...",26);
   centreText(myUrl,40);
@@ -1004,7 +1016,7 @@ void showFirmwareUpdateProgress(int percent) {
   u8g2.clearBuffer();
   u8g2.setFont(NatRailTall12);
   centreText("Firmware Update in Progress",-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   progressBar("Updating Firmware",percent);
   centreText("* DO NOT REMOVE THE POWER DURING THE UPDATE *",54);
   u8g2.sendBuffer();
@@ -1015,7 +1027,7 @@ void showUpdateCompleteScreen(const char *title, const char *msg1, const char *m
   u8g2.clearBuffer();
   u8g2.setFont(NatRailTall12);
   centreText(title,-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText(msg1,14);
   centreText(msg2,26);
   centreText(msg3,40);
@@ -1032,7 +1044,7 @@ void showSwitchScreen() {
   if (carouselActive) centreText("Moving to next carousel slot",20);
   else if (schedulerActive) centreText("Moving to next scheduler slot",20);
   else centreText("Switching modes",20);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("Waiting for background process to complete...",42);
   u8g2.sendBuffer();
 }
@@ -1196,7 +1208,7 @@ void saveFirmwareInfo() {
 
 // Write a default config file so that the Web GUI works initially (force Tube mode if no NR token)
 void writeDefaultConfig() {
-  String defaultConfig = "{\"crs\":\"\",\"station\":\"\",\"lat\":0,\"lon\":0,\"weather\":true,\"sleep\":false,\"showDate\":false,\"showBus\":false,\"update\":true,\"sleepStarts\":23,\"sleepEnds\":8,\"brightness\":20,\"tubeId\":\"\",\"tubeName\":\"\",\"mode\":" + String((!nrToken[0] && rdmDeparturesApiKey=="")?"1":"0") + "}";
+  String defaultConfig = "{\"crs\":\"\",\"station\":\"\",\"lat\":0,\"lon\":0,\"weather\":true,\"sleep\":false,\"showDate\":false,\"showBus\":false,\"update\":true,\"sleepStarts\":23,\"sleepEnds\":8,\"brightness\":200,\"touch\":true,\"displayColor\":0,\"displayScale\":0,\"displayFont\":0,\"tubeId\":\"\",\"tubeName\":\"\",\"mode\":" + String((!nrToken[0] && rdmDeparturesApiKey=="")?"1":"0") + "}";
   saveFile("/config.json",defaultConfig);
   resetLocationIds();
   saveFirmwareInfo();
@@ -1333,6 +1345,9 @@ void loadConfig(bool coldBoot = false, boardModes requestedMode = MODE_LOADCONFI
         if (settings["noScroll"].is<bool>())          noScrolling = settings["noScroll"];
         if (settings["flip"].is<bool>())              flipScreen = settings["flip"];
         if (settings["touch"].is<bool>())             touchEnabled = settings["touch"];
+        if (settings["displayColor"].is<int>())        u8g2.setColorScheme((CydColorScheme)settings["displayColor"].as<int>());
+        if (settings["displayScale"].is<int>())        u8g2.setScaleMode((CydScaleMode)settings["displayScale"].as<int>());
+        if (settings["displayFont"].is<int>())         u8g2.setFontStyle((CydFontStyle)settings["displayFont"].as<int>());
         if (settings["dataIcon"].is<bool>())          showDataIcon = settings["dataIcon"];
         if (settings["forceWakeTime"].is<int>())      stayAwakeSeconds = settings["forceWakeTime"];
         if (settings["TZ"].is<const char*>())         timezone = settings["TZ"].as<String>();
@@ -2497,7 +2512,7 @@ void handleFactoryReset(AsyncWebServerRequest *request) {
   restartTimer.once(1, []() { WiFiManager wm; wm.resetSettings(); LittleFS.format(); ESP.restart();});
 }
 
-// Interactively change the brightness of the OLED panel (called from index.htm)
+// Interactively change the CYD backlight (called from index.htm)
 void handleBrightness(AsyncWebServerRequest *request) {
   if (request->hasParam("b")) {
     int level = request->getParam("b")->value().toInt();
@@ -2509,6 +2524,32 @@ void handleBrightness(AsyncWebServerRequest *request) {
     }
   }
   sendResponse(200,"invalid request",request);
+}
+
+// Interactively change the CYD display appearance (called from index.htm)
+void handleDisplaySettings(AsyncWebServerRequest *request) {
+  if (request->hasParam("color")) {
+    int col = request->getParam("color")->value().toInt();
+    if (col >= 0 && col <= 5) {
+      u8g2.setColorScheme((CydColorScheme)col);
+      u8g2.sendBuffer();
+    }
+  }
+  if (request->hasParam("scale")) {
+    int scl = request->getParam("scale")->value().toInt();
+    if (scl >= 0 && scl <= 1) {
+      u8g2.setScaleMode((CydScaleMode)scl);
+      u8g2.sendBuffer();
+    }
+  }
+  if (request->hasParam("font")) {
+    int fnt = request->getParam("font")->value().toInt();
+    if (fnt >= 0 && fnt <= 1) {
+      u8g2.setFontStyle((CydFontStyle)fnt);
+      u8g2.sendBuffer();
+    }
+  }
+  sendResponse(200,"OK",request);
 }
 
 // Web GUI has requested updates be installed
@@ -3177,7 +3218,7 @@ void setup(void) {
   // These are the default wsdl XML SOAP entry points. They can be overridden in the config.json file if necessary
   strlcpy(wsdlHost,"lite.realtime.nationalrail.co.uk",sizeof(wsdlHost));
   strlcpy(wsdlAPI,"/OpenLDBWS/wsdl.aspx?ver=2021-11-01",sizeof(wsdlAPI));
-  u8g2.begin();                       // Start the OLED panel
+  u8g2.begin();                       // Start the CYD TFT panel
   u8g2.setContrast(brightness);       // Initial brightness
   u8g2.setDrawColor(1);               // Only a monochrome display, so set the colour to "on"
   u8g2.setFontMode(1);                // Transparent fonts
@@ -3194,7 +3235,7 @@ void setup(void) {
   strcpy(tflAppKey,"");                       // No default TfL app_key
   loadApiKeys();                              // Load the API keys from the apiKeys.json
   loadConfig(true);                           // Load the configuration settings from config.json
-  u8g2.setContrast(brightness);               // Set the panel brightness to the user saved level
+  u8g2.setContrast(brightness);               // Set the user-saved backlight brightness
   if (flipScreen) u8g2.setFlipMode(1);
   u8g2.clearBuffer();
   u8g2.drawXBM(81,0,gadeclogo_width,gadeclogo_height,gadeclogo_bits);
@@ -3244,7 +3285,7 @@ void setup(void) {
   WiFi.localIP().toString().toCharArray(ipBuff,sizeof(ipBuff));   // Get the IP address of the ESP32
   centreText(ipBuff,53);                                          // Display the IP address
   progressBar("Wi-Fi Connected",30);
-  u8g2.sendBuffer();                                              // Send to OLED panel
+  u8g2.sendBuffer();                                              // Send to CYD panel
 
   // Configure the local webserver paths
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){handleRoot(request);});
@@ -3260,6 +3301,7 @@ void setup(void) {
   server.on("/stationpicker", HTTP_GET, [](AsyncWebServerRequest *request){handleStationPicker(request);});
   server.on("/firmware", HTTP_GET, [](AsyncWebServerRequest *request){handleFirmwareInfo(request);});
   server.on("/brightness", HTTP_GET, [](AsyncWebServerRequest *request){handleBrightness(request);});
+  server.on("/display", HTTP_GET, [](AsyncWebServerRequest *request){handleDisplaySettings(request);});
   server.on("/ota", HTTP_GET, [](AsyncWebServerRequest *request){handleOtaUpdate(request);});
   server.on("/control", HTTP_GET, [](AsyncWebServerRequest *request){handleControl(request);});
   server.on("/success", HTTP_GET, [](AsyncWebServerRequest *request){request->send(200,contentTypeHtml,successPage);});
