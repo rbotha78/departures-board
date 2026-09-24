@@ -34,12 +34,6 @@ enum CydScaleMode {
   CYD_SCALE_CENTERED = 1
 };
 
-// Text font style for setup/notification screens (National Rail vs London Underground)
-enum CydFontStyle {
-  CYD_FONT_NATRAIL = 0,
-  CYD_FONT_UNDERGROUND = 1
-};
-
 // Backlight GPIO pin on CYD
 #define CYD_TFT_BL 21
 #define CYD_PWM_CHANNEL 0
@@ -50,7 +44,6 @@ enum CydFontStyle {
 extern TFT_eSPI cyd_tft;
 extern CydColorScheme cyd_current_color_scheme;
 extern CydScaleMode cyd_current_scale_mode;
-extern CydFontStyle cyd_current_font_style;
 extern uint16_t cyd_fg_color;
 extern uint16_t cyd_bg_color;
 extern uint8_t cyd_current_brightness;
@@ -196,6 +189,31 @@ public:
     u8g2_Setup_cyd_native(&u8g2, rotation);
   }
 
+  // Preserve the original custom bitmap fonts while rendering them as crisp 2x pixels.
+  u8g2_uint_t drawStr(u8g2_uint_t x, u8g2_uint_t y, const char *text) {
+    return text_scale == 1 ? U8G2::drawStr(x, y, text) : u8g2_DrawStrX2(&u8g2, x, y, text);
+  }
+
+  u8g2_uint_t getStrWidth(const char *text) {
+    return text_scale == 1 ? U8G2::getStrWidth(text) : u8g2_GetStrWidth(&u8g2, text) * 2;
+  }
+
+  u8g2_uint_t drawStrUnscaled(u8g2_uint_t x, u8g2_uint_t y, const char *text) {
+    return U8G2::drawStr(x, y, text);
+  }
+
+  u8g2_uint_t getStrWidthUnscaled(const char *text) {
+    return U8G2::getStrWidth(text);
+  }
+
+  void setTextScale(uint8_t scale) {
+    text_scale = scale == 1 ? 1 : 2;
+  }
+
+  uint8_t getTextScale() const {
+    return text_scale;
+  }
+
   TFT_eSPI &getTft() { return cyd_tft; }
 
   void setColorScheme(CydColorScheme scheme) {
@@ -215,14 +233,6 @@ public:
     return cyd_current_scale_mode;
   }
 
-  void setFontStyle(CydFontStyle style) {
-    cyd_current_font_style = style;
-  }
-
-  CydFontStyle getFontStyle() const {
-    return cyd_current_font_style;
-  }
-
   void setBacklight(uint8_t brightness) {
     cyd_set_backlight(brightness);
   }
@@ -235,4 +245,7 @@ public:
   void updateDisplayArea(uint8_t, uint8_t, uint8_t, uint8_t) {
     sendBuffer();
   }
+
+private:
+  uint8_t text_scale = 2;
 };

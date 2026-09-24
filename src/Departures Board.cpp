@@ -336,21 +336,8 @@ static const uint8_t UndergroundClock8[150] U8G2_FONT_SECTION("UndergroundClock8
 
 // Body font used for plain setup/notification screen text (no icon glyphs), per the configurable font style
 static const uint8_t *bodyFont() {
-#if defined(DISPLAY_CYD)
-  return (u8g2.getFontStyle() == CYD_FONT_UNDERGROUND) ? u8g2_font_9x18B_tf : u8g2_font_9x18_tf;
-#else
   return NatRailSmall9;
-#endif
 }
-
-#if defined(DISPLAY_CYD)
-#define NatRailSmall9 u8g2_font_9x18_tf
-#define NatRailTall12 u8g2_font_10x20_tf
-#define NatRailClockSmall7 u8g2_font_9x18_tn
-#define NatRailClockLarge9 u8g2_font_logisoso24_tn
-#define Underground10 u8g2_font_9x18B_tf
-#define UndergroundClock8 u8g2_font_9x18_tn
-#endif
 
 // Service attribution texts
 static const char nrAttributionn[] = "Powered by National Rail Enquiries";
@@ -708,6 +695,10 @@ void drawStartupHeading() {
 }
 
 void drawStationHeader(const char *stopName, const char *callingStopName, const char *platFilter, const int timeOffset) {
+#if defined(DISPLAY_CYD)
+  uint8_t previousTextScale = u8g2.getTextScale();
+  u8g2.setTextScale(2);
+#endif
 
   // Clear the top line
   if (boardMode == MODE_TUBE || boardMode == MODE_BUS) {
@@ -717,7 +708,7 @@ void drawStationHeader(const char *stopName, const char *callingStopName, const 
   }
 
 #if defined(DISPLAY_CYD)
-  u8g2.setFont(u8g2_font_10x20_tf);
+  u8g2.setFont(NatRailTall12);
 #else
   u8g2.setFont(NatRailSmall9);
 #endif
@@ -772,6 +763,9 @@ void drawStationHeader(const char *stopName, const char *callingStopName, const 
   }
 
   if (titleOffset) u8g2.drawStr(0,LINE0-1,schedulerActive?"\x87":"\x88");
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(previousTextScale);
+#endif
 }
 
 // Draw a 7-segment digit at x,y with height h
@@ -878,10 +872,10 @@ void drawCurrentTime() {
     else {
 #if defined(DISPLAY_CYD)
       u8g2.setFont(u8g2_font_logisoso20_tn);
-      int clockWidth = getStringWidth("88:88:88");
+      int clockWidth = u8g2.getStrWidthUnscaled("88:88:88");
       int clockX = (SCREEN_WIDTH-clockWidth)/2;
       blankArea(clockX,LINE4,clockWidth,SCREEN_HEIGHT-LINE4);
-      u8g2.drawStr(clockX,LINE4-1,currentTime);
+      u8g2.drawStrUnscaled(clockX,LINE4-1,currentTime);
       u8g2.setFont(NatRailSmall9);
 #else
       u8g2.setFont(NatRailClockLarge9);
@@ -1321,7 +1315,7 @@ void saveFirmwareInfo() {
 
 // Write a default config file so that the Web GUI works initially (force Tube mode if no NR token)
 void writeDefaultConfig() {
-  String defaultConfig = "{\"crs\":\"\",\"station\":\"\",\"lat\":0,\"lon\":0,\"weather\":true,\"sleep\":false,\"showDate\":false,\"showBus\":false,\"update\":true,\"sleepStarts\":23,\"sleepEnds\":8,\"brightness\":200,\"touch\":true,\"displayColor\":0,\"displayScale\":0,\"displayFont\":0,\"tubeId\":\"\",\"tubeName\":\"\",\"mode\":" + String((!nrToken[0] && rdmDeparturesApiKey=="")?"1":"0") + "}";
+  String defaultConfig = "{\"crs\":\"\",\"station\":\"\",\"lat\":0,\"lon\":0,\"weather\":true,\"sleep\":false,\"showDate\":false,\"showBus\":false,\"update\":true,\"sleepStarts\":23,\"sleepEnds\":8,\"brightness\":200,\"touch\":true,\"displayColor\":0,\"displayScale\":0,\"tubeId\":\"\",\"tubeName\":\"\",\"mode\":" + String((!nrToken[0] && rdmDeparturesApiKey=="")?"1":"0") + "}";
   saveFile("/config.json",defaultConfig);
   resetLocationIds();
   saveFirmwareInfo();
@@ -1461,7 +1455,6 @@ void loadConfig(bool coldBoot = false, boardModes requestedMode = MODE_LOADCONFI
 #if defined(DISPLAY_CYD)
         if (settings["displayColor"].is<int>())        u8g2.setColorScheme((CydColorScheme)settings["displayColor"].as<int>());
         if (settings["displayScale"].is<int>())        u8g2.setScaleMode((CydScaleMode)settings["displayScale"].as<int>());
-        if (settings["displayFont"].is<int>())         u8g2.setFontStyle((CydFontStyle)settings["displayFont"].as<int>());
 #endif
         if (settings["dataIcon"].is<bool>())          showDataIcon = settings["dataIcon"];
         if (settings["forceWakeTime"].is<int>())      stayAwakeSeconds = settings["forceWakeTime"];
@@ -1827,13 +1820,17 @@ bool checkForFirmwareUpdate() {
 
 // Draw the primary service line
 void drawPrimaryService(bool showVia) {
+#if defined(DISPLAY_CYD)
+  uint8_t previousTextScale = u8g2.getTextScale();
+  u8g2.setTextScale(1);
+#endif
   int destPos;
   char clipDestination[MAXLOCATIONSIZE+5];
   char etd[16];
   char plat[9];
 
 #if defined(DISPLAY_CYD)
-  u8g2.setFont(u8g2_font_9x18_tf);
+  u8g2.setFont(NatRailSmall9);
 #else
   u8g2.setFont(NatRailTall12);
 #endif
@@ -1868,10 +1865,17 @@ void drawPrimaryService(bool showVia) {
   u8g2.drawStr(destPos,LINE1-1,clipDestination);
   // Set font back to standard
   u8g2.setFont(NatRailSmall9);
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(previousTextScale);
+#endif
 }
 
 // Draw the secondary service line
 void drawServiceLine(int line, int y) {
+#if defined(DISPLAY_CYD)
+  uint8_t previousTextScale = u8g2.getTextScale();
+  u8g2.setTextScale(1);
+#endif
   char clipDestination[MAXLOCATIONSIZE+5];
   char ordinal[8];
   char plat[9];
@@ -1933,6 +1937,9 @@ void drawServiceLine(int line, int y) {
       centreText(useRDMclient?rdgAttribution:nrAttributionn,y-1);
     }
   }
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(previousTextScale);
+#endif
 }
 
 // Draw the initial Departures Board
@@ -2662,13 +2669,6 @@ void handleDisplaySettings(AsyncWebServerRequest *request) {
       u8g2.sendBuffer();
     }
   }
-  if (request->hasParam("font")) {
-    int fnt = request->getParam("font")->value().toInt();
-    if (fnt >= 0 && fnt <= 1) {
-      u8g2.setFontStyle((CydFontStyle)fnt);
-      u8g2.sendBuffer();
-    }
-  }
   sendResponse(200,"OK",request);
 }
 #endif
@@ -2796,6 +2796,9 @@ void handleStationPicker(AsyncWebServerRequest *request)
 // The main processing cycle for the National Rail Departures Board
 //
 void departureBoardLoop() {
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(1);
+#endif
 
   if (millis() > nextDataUpdate && !fetchInProgress && lastUpdateResult != UPD_UNAUTHORISED && !isSleeping && wifiConnected) {
     if (!firstLoad) showUpdateIcon(true);
@@ -2962,6 +2965,9 @@ void departureBoardLoop() {
     if (!noServiceClockIsActive) u8g2.updateDisplayArea(0,3,32,4); else u8g2.updateDisplayArea(0,6,32,2);
     refreshTimer=millis();
   }
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(2);
+#endif
 }
 
 //
