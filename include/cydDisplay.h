@@ -1,5 +1,5 @@
 /*
- * Departures Board CYD Edition (c) 2025-2026 Gadec Software & Contributors
+ * Departures Board (c) 2025-2026 Gadec Software & Contributors
  *
  * cydDisplay.h - Display Driver for ESP32 Cheap Yellow Display (ESP32-2432S028R)
  * Provides high-speed rendering of U8g2 graphics to the onboard 320x240 ILI9341/ST7789 TFT.

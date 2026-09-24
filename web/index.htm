@@ -206,10 +206,10 @@
               <div class="mb-3">
                 <label class="form-label" for="brightness">Brightness</label>
                 <input type="range" min="1" max="255" value="50" class="form-range" id="brightness">
-                <div class="form-text">Controls the CYD TFT backlight. Lowering it reduces power use and screen wear.</div>
+                <div class="form-text">Controls the display brightness. Lowering it reduces power use and screen wear.</div>
               </div>
 
-              <div class="row g-3 mb-3">
+              <div class="row g-3 mb-3" id="cydDisplaySettings">
                 <div class="col-sm-6">
                   <label class="form-label" for="displayColor">Display colour</label>
                   <select class="form-select" id="displayColor">
@@ -882,6 +882,11 @@
     };
 
     document.getElementById('formsettings').addEventListener('keydown', function(e) { if (e.key === 'Enter') e.preventDefault(); });
+
+    fetch('/displayinfo')
+      .then(response => response.json())
+      .then(info => { document.getElementById('cydDisplaySettings').style.display = info.cyd ? '' : 'none'; })
+      .catch(() => { document.getElementById('cydDisplaySettings').style.display = 'none'; });
 
     const busFilterError="Please enter a valid list of bus services to filter on, or leave blank for all services.";
     const platformFilterError="Please enter a valid list of platforms to filter on, or leave blank for all services.";

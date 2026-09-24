@@ -137,11 +137,15 @@ static const char successPage[] =
 
 #define SCREEN_WIDTH 256 // Departures board virtual width, in pixels
 #define SCREEN_HEIGHT 64 // Departures board virtual height, in pixels
+
+#if defined(DISPLAY_CYD)
 #define DIMMED_BRIGHTNESS 20 // CYD display brightness level when in sleep/screensaver mode (0-255)
-
 #include "cydDisplay.h"
-
 U8G2_CYD_TFT u8g2;
+#else
+#define DIMMED_BRIGHTNESS 1 // OLED display brightness level when in sleep/screensaver mode
+U8G2_SSD1322_NHD_256X64_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ GPIO_NUM_26, /* dc=*/ GPIO_NUM_5, /* reset=*/ U8X8_PIN_NONE);
+#endif
 
 // Vertical line positions on the virtual departures-board display (National Rail)
 #define LINE0 0
@@ -311,7 +315,11 @@ static const uint8_t UndergroundClock8[150] U8G2_FONT_SECTION("UndergroundClock8
 
 // Body font used for plain setup/notification screen text (no icon glyphs), per the configurable font style
 static const uint8_t *bodyFont() {
+#if defined(DISPLAY_CYD)
   return (u8g2.getFontStyle() == CYD_FONT_UNDERGROUND) ? Underground10 : NatRailSmall9;
+#else
+  return NatRailSmall9;
+#endif
 }
 
 // Service attribution texts
@@ -515,8 +523,13 @@ static String rssName;                                 // Name of feed for atrri
 static char rssMessage[MAXMESSAGESIZE] = "";           // Holds the current, formatted, RSS message
 
 
+#if defined(DISPLAY_CYD)
 // CYD touchscreen and BOOT button
 touchSensor button(0);
+#else
+// Optional TTP223 touch sensor for the OLED board
+touchSensor button(GPIO_NUM_34);
+#endif
 
 // FreeRTOS Task Handle and Status Flags
 TaskHandle_t fetchTaskHandle = NULL;
@@ -1345,9 +1358,11 @@ void loadConfig(bool coldBoot = false, boardModes requestedMode = MODE_LOADCONFI
         if (settings["noScroll"].is<bool>())          noScrolling = settings["noScroll"];
         if (settings["flip"].is<bool>())              flipScreen = settings["flip"];
         if (settings["touch"].is<bool>())             touchEnabled = settings["touch"];
+#if defined(DISPLAY_CYD)
         if (settings["displayColor"].is<int>())        u8g2.setColorScheme((CydColorScheme)settings["displayColor"].as<int>());
         if (settings["displayScale"].is<int>())        u8g2.setScaleMode((CydScaleMode)settings["displayScale"].as<int>());
         if (settings["displayFont"].is<int>())         u8g2.setFontStyle((CydFontStyle)settings["displayFont"].as<int>());
+#endif
         if (settings["dataIcon"].is<bool>())          showDataIcon = settings["dataIcon"];
         if (settings["forceWakeTime"].is<int>())      stayAwakeSeconds = settings["forceWakeTime"];
         if (settings["TZ"].is<const char*>())         timezone = settings["TZ"].as<String>();
@@ -2527,6 +2542,7 @@ void handleBrightness(AsyncWebServerRequest *request) {
 }
 
 // Interactively change the CYD display appearance (called from index.htm)
+#if defined(DISPLAY_CYD)
 void handleDisplaySettings(AsyncWebServerRequest *request) {
   if (request->hasParam("color")) {
     int col = request->getParam("color")->value().toInt();
@@ -2551,6 +2567,7 @@ void handleDisplaySettings(AsyncWebServerRequest *request) {
   }
   sendResponse(200,"OK",request);
 }
+#endif
 
 // Web GUI has requested updates be installed
 void handleOtaUpdate(AsyncWebServerRequest *request) {
@@ -3218,7 +3235,7 @@ void setup(void) {
   // These are the default wsdl XML SOAP entry points. They can be overridden in the config.json file if necessary
   strlcpy(wsdlHost,"lite.realtime.nationalrail.co.uk",sizeof(wsdlHost));
   strlcpy(wsdlAPI,"/OpenLDBWS/wsdl.aspx?ver=2021-11-01",sizeof(wsdlAPI));
-  u8g2.begin();                       // Start the CYD TFT panel
+  u8g2.begin();
   u8g2.setContrast(brightness);       // Initial brightness
   u8g2.setDrawColor(1);               // Only a monochrome display, so set the colour to "on"
   u8g2.setFontMode(1);                // Transparent fonts
@@ -3235,7 +3252,7 @@ void setup(void) {
   strcpy(tflAppKey,"");                       // No default TfL app_key
   loadApiKeys();                              // Load the API keys from the apiKeys.json
   loadConfig(true);                           // Load the configuration settings from config.json
-  u8g2.setContrast(brightness);               // Set the user-saved backlight brightness
+  u8g2.setContrast(brightness);               // Set the user-saved display brightness
   if (flipScreen) u8g2.setFlipMode(1);
   u8g2.clearBuffer();
   u8g2.drawXBM(81,0,gadeclogo_width,gadeclogo_height,gadeclogo_bits);
@@ -3301,7 +3318,12 @@ void setup(void) {
   server.on("/stationpicker", HTTP_GET, [](AsyncWebServerRequest *request){handleStationPicker(request);});
   server.on("/firmware", HTTP_GET, [](AsyncWebServerRequest *request){handleFirmwareInfo(request);});
   server.on("/brightness", HTTP_GET, [](AsyncWebServerRequest *request){handleBrightness(request);});
+#if defined(DISPLAY_CYD)
   server.on("/display", HTTP_GET, [](AsyncWebServerRequest *request){handleDisplaySettings(request);});
+  server.on("/displayinfo", HTTP_GET, [](AsyncWebServerRequest *request){request->send(200,contentTypeJson,"{\"cyd\":true}");});
+#else
+  server.on("/displayinfo", HTTP_GET, [](AsyncWebServerRequest *request){request->send(200,contentTypeJson,"{\"cyd\":false}");});
+#endif
   server.on("/ota", HTTP_GET, [](AsyncWebServerRequest *request){handleOtaUpdate(request);});
   server.on("/control", HTTP_GET, [](AsyncWebServerRequest *request){handleControl(request);});
   server.on("/success", HTTP_GET, [](AsyncWebServerRequest *request){request->send(200,contentTypeHtml,successPage);});
