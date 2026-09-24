@@ -5,7 +5,7 @@
  * Provides high-speed rendering of U8g2 graphics to the onboard 320x240 ILI9341/ST7789 TFT.
  *
  * Supports:
- *  - Native 304x136 CYD canvas centered on the 320x240 TFT
+ *  - Native 320x240 CYD canvas
  *  - Configurable UK station color palettes (Amber, White, Yellow, Green, Orange, Cyan)
  *  - Smooth LEDC Backlight PWM brightness control on GPIO 21
  */
@@ -28,7 +28,7 @@ enum CydColorScheme {
 };
 
 // Legacy scale values retained for configuration compatibility. CYD now uses
-// the native 304x136 layout for either value.
+// the native 320x240 layout for either value.
 enum CydScaleMode {
   CYD_SCALE_FULLSCREEN = 0,
   CYD_SCALE_CENTERED = 1
@@ -48,10 +48,12 @@ extern uint16_t cyd_fg_color;
 extern uint16_t cyd_bg_color;
 extern uint8_t cyd_current_brightness;
 
-#define CYD_NATIVE_WIDTH 304
-#define CYD_NATIVE_HEIGHT 136
+#define CYD_NATIVE_WIDTH 320
+#define CYD_NATIVE_HEIGHT 240
 #define CYD_NATIVE_X_OFFSET ((320 - CYD_NATIVE_WIDTH) / 2)
 #define CYD_NATIVE_Y_OFFSET ((240 - CYD_NATIVE_HEIGHT) / 2)
+#define CYD_NATIVE_TILE_WIDTH (CYD_NATIVE_WIDTH / 8)
+#define CYD_NATIVE_TILE_HEIGHT (CYD_NATIVE_HEIGHT / 8)
 
 // Helper to calculate 16-bit RGB565 color for a scheme
 inline uint16_t cyd_get_palette_color(CydColorScheme scheme) {
@@ -113,7 +115,7 @@ inline void cyd_draw_tiles(uint8_t tile_x, uint8_t tile_y, uint8_t cnt, const ui
   cyd_tft.endWrite();
 }
 
-// U8x8 display info structure for the native 304x136 CYD buffer
+// U8x8 display info structure for the native 320x240 CYD buffer
 static const u8x8_display_info_t u8x8_cyd_display_info = {
   /* chip_enable_level = */ 0,
   /* chip_disable_level = */ 1,
@@ -128,8 +130,8 @@ static const u8x8_display_info_t u8x8_cyd_display_info = {
   /* i2c_bus_clock_100kHz = */ 4,
   /* data_setup_time_ns = */ 0,
   /* write_pulse_width_ns = */ 0,
-  /* tile_width = */ 38,
-  /* tile_height = */ 17,
+  /* tile_width = */ CYD_NATIVE_TILE_WIDTH,
+  /* tile_height = */ CYD_NATIVE_TILE_HEIGHT,
   /* default_x_offset = */ 0,
   /* flipmode_x_offset = */ 0,
   /* pixel_width = */ CYD_NATIVE_WIDTH,
@@ -177,9 +179,9 @@ inline uint8_t u8x8_d_cyd_tft(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *
 
 // Setup routine linking U8g2 to our custom CYD driver
 inline void u8g2_Setup_cyd_native(u8g2_t *u8g2, const u8g2_cb_t *rotation) {
-  static uint8_t buf[38 * 17 * 8];
+  static uint8_t buf[CYD_NATIVE_TILE_WIDTH * CYD_NATIVE_TILE_HEIGHT * 8];
   u8g2_SetupDisplay(u8g2, u8x8_d_cyd_tft, u8x8_cad_empty, u8x8_byte_empty, u8x8_dummy_cb);
-  u8g2_SetupBuffer(u8g2, buf, 17, u8g2_ll_hvline_vertical_top_lsb, rotation);
+  u8g2_SetupBuffer(u8g2, buf, CYD_NATIVE_TILE_HEIGHT, u8g2_ll_hvline_vertical_top_lsb, rotation);
 }
 
 // C++ Display Class derived from U8G2

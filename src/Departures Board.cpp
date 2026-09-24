@@ -136,8 +136,8 @@ static const char successPage[] =
 "</body></html>";
 
 #if defined(DISPLAY_CYD)
-#define SCREEN_WIDTH 304 // Native CYD canvas width, in pixels
-#define SCREEN_HEIGHT 136 // Native CYD canvas height, in pixels
+#define SCREEN_WIDTH 320 // Native CYD canvas width, in pixels
+#define SCREEN_HEIGHT 240 // Native CYD canvas height, in pixels
 #else
 #define SCREEN_WIDTH 256 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -155,17 +155,17 @@ U8G2_SSD1322_NHD_256X64_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ GPIO_NUM_26, /* dc=*/
 #if defined(DISPLAY_CYD)
 // Vertical line positions on the native CYD display (National Rail)
 #define LINE0 0
-#define LINE1 28
-#define LINE2 54
-#define LINE3 80
-#define LINE4 106
+#define LINE1 88
+#define LINE2 120
+#define LINE3 152
+#define LINE4 184
 
 // Vertical line positions on the native CYD display (Underground)
 #define ULINE0 0
-#define ULINE1 32
-#define ULINE2 62
-#define ULINE3 92
-#define ULINE4 112
+#define ULINE1 80
+#define ULINE2 116
+#define ULINE3 152
+#define ULINE4 188
 #else
 // Vertical line positions on the OLED display (National Rail)
 #define LINE0 0
@@ -638,6 +638,22 @@ int getStringWidth(const char *message) {
   return u8g2.getStrWidth(message);
 }
 
+int railDetailBaseline(int rowTop) {
+#if defined(DISPLAY_CYD)
+  return rowTop + u8g2.getAscent();
+#else
+  return rowTop - 1;
+#endif
+}
+
+int railDetailScrollBaseline(int legacyBaseline) {
+#if defined(DISPLAY_CYD)
+  return legacyBaseline + u8g2.getAscent();
+#else
+  return legacyBaseline;
+#endif
+}
+
 void drawTruncatedText(const char *message, int line, int x) {
   char buff[strlen(message)+4];
   int maxWidth = SCREEN_WIDTH - 6 - x;
@@ -757,8 +773,10 @@ void drawStationHeader(const char *stopName, const char *callingStopName, const 
 
 #if defined(DISPLAY_CYD)
   u8g2.setFont(NatRailTall12);
+  const int titleBaseline = 10 + (u8g2.getAscent() * u8g2.getTextScale());
 #else
   u8g2.setFont(NatRailSmall9);
+  const int titleBaseline = LINE0-1;
 #endif
   char boardTitle[95];
   strlcpy(boardTitle,stopName,sizeof(boardTitle));
@@ -794,23 +812,23 @@ void drawStationHeader(const char *stopName, const char *callingStopName, const 
     if (callingStopName[0] || boardTitleWidth+dateWidth+10+titleOffset>=SCREEN_WIDTH) {
       blankArea(SCREEN_WIDTH-70,dateY,70,SCREEN_HEIGHT-dateY);
       u8g2.drawStr(SCREEN_WIDTH-dateWidth,dateY-1,sysTime); // Date bottom right
-      if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreStationTitle(boardTitle,LINE0-1);
-      else drawTruncatedStationTitle(boardTitle,LINE0-1,titleOffset);
+      if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreStationTitle(boardTitle,titleBaseline);
+      else drawTruncatedStationTitle(boardTitle,titleBaseline,titleOffset);
     } else {
-      u8g2.drawStr(SCREEN_WIDTH-dateWidth,LINE0-1,sysTime); // right-aligned date top
+      u8g2.drawStr(SCREEN_WIDTH-dateWidth,titleBaseline,sysTime); // right-aligned date top
       if ((SCREEN_WIDTH-boardTitleWidth)/2 < dateWidth+8) {
         // station name left aligned
-        drawStationTitle(boardTitle,titleOffset,LINE0-1);
+        drawStationTitle(boardTitle,titleOffset,titleBaseline);
       } else {
-        centreStationTitle(boardTitle,LINE0-1);
+        centreStationTitle(boardTitle,titleBaseline);
       }
     }
   } else {
-    if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreStationTitle(boardTitle,LINE0-1);
-    else drawTruncatedStationTitle(boardTitle,LINE0-1,titleOffset);
+    if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreStationTitle(boardTitle,titleBaseline);
+    else drawTruncatedStationTitle(boardTitle,titleBaseline,titleOffset);
   }
 
-  if (titleOffset) u8g2.drawStr(0,LINE0-1,schedulerActive?"\x87":"\x88");
+  if (titleOffset) u8g2.drawStr(0,titleBaseline,schedulerActive?"\x87":"\x88");
 #if defined(DISPLAY_CYD)
   u8g2.setTextScale(previousTextScale);
 #endif
@@ -922,8 +940,12 @@ void drawCurrentTime() {
       u8g2.setFont(u8g2_font_logisoso20_tn);
       int clockWidth = u8g2.getStrWidthUnscaled("88:88:88");
       int clockX = (SCREEN_WIDTH-clockWidth)/2;
+      int clockHeight = u8g2.getAscent() - u8g2.getDescent();
+      int clockTop = SCREEN_HEIGHT - 10 - clockHeight;
       blankArea(clockX,LINE4,clockWidth,SCREEN_HEIGHT-LINE4);
-      u8g2.drawStrUnscaled(clockX,LINE4-1,currentTime);
+      u8g2.setFontPosTop();
+      u8g2.drawStrUnscaled(clockX,clockTop,currentTime);
+      u8g2.setFontPosBaseline();
       u8g2.setFont(NatRailSmall9);
 #else
       u8g2.setFont(NatRailClockLarge9);
@@ -1923,6 +1945,9 @@ void drawServiceLine(int line, int y) {
 #if defined(DISPLAY_CYD)
   uint8_t previousTextScale = u8g2.getTextScale();
   u8g2.setTextScale(1);
+  const int detailBaseline = railDetailBaseline(y);
+#else
+  const int detailBaseline = railDetailBaseline(y);
 #endif
   char clipDestination[MAXLOCATIONSIZE+5];
   char ordinal[8];
@@ -1946,22 +1971,22 @@ void drawServiceLine(int line, int y) {
 
   if (line<station.numServices) {
     if (hideOrdinals) {
-      destPos = u8g2.drawStr(0,y-1,station.service[line].sTime) + 6;
+      destPos = u8g2.drawStr(0,detailBaseline,station.service[line].sTime) + 6;
     } else {
-      int timeX = u8g2.drawStr(0,y-1,ordinal) + 6;
-      destPos = timeX + u8g2.drawStr(timeX,y-1,station.service[line].sTime) + 6;
+      int timeX = u8g2.drawStr(0,detailBaseline,ordinal) + 6;
+      destPos = timeX + u8g2.drawStr(timeX,detailBaseline,station.service[line].sTime) + 6;
     }
     char etd[16];
     if (isDigit(station.service[line].etd[0])) sprintf(etd,"Exp %s",station.service[line].etd);
     else strcpy(etd,station.service[line].etd);
     int etdWidth = getStringWidth(etd) + (etd[strlen(etd)-1]=='1'?1:0);
-    u8g2.drawStr(SCREEN_WIDTH - etdWidth,y-1,etd);
+    u8g2.drawStr(SCREEN_WIDTH - etdWidth,detailBaseline,etd);
     int spaceAvailable = SCREEN_WIDTH - destPos - etdWidth - 6;
 
     if (station.platformAvailable && !hidePlatform && station.service[line].platform[0] && station.service[line].serviceType == TRAIN) {
       sprintf(plat,"Plat %.3s",station.service[line].platform);
       int platWidth = getStringWidth(plat) + (plat[strlen(plat)-1]=='1'?1:0);
-      u8g2.drawStr(SCREEN_WIDTH - etdWidth - platWidth - 7,y-1,plat);
+      u8g2.drawStr(SCREEN_WIDTH - etdWidth - platWidth - 7,detailBaseline,plat);
       spaceAvailable-=(platWidth+7);
     }
     // work out if we need to clip the destination
@@ -1975,14 +2000,14 @@ void drawServiceLine(int line, int y) {
       if (clipDestination[strlen(clipDestination)-1] == ' ') clipDestination[strlen(clipDestination)-1] = '\0';
       strcat(clipDestination,"...");
     }
-    u8g2.drawStr(destPos,y-1,clipDestination);
+    u8g2.drawStr(destPos,detailBaseline,clipDestination);
   } else {
     if (weatherMsg[0] && line==station.numServices) {
       // We're showing the weather
-      centreText(weatherMsg,y-1);
+      centreText(weatherMsg,detailBaseline);
     } else {
       // We're showing the mandatory attribution
-      centreText(useRDMclient?rdgAttribution:nrAttributionn,y-1);
+      centreText(useRDMclient?rdgAttribution:nrAttributionn,detailBaseline);
     }
   }
 #if defined(DISPLAY_CYD)
@@ -2960,17 +2985,17 @@ void departureBoardLoop() {
       // we're scrolling up the message initially
       // if the previous message didn't scroll then we need to scroll it up off the screen
       if (prevScrollStopsLength && prevScrollStopsLength<msgWidth) {
-        if (strncmp("Calling",line2[prevMessage],7)) centreText(line2[prevMessage],scrollStopsYpos+msgLine-12,msgMargin,msgWidth);
-        else u8g2.drawStr(msgMargin,scrollStopsYpos+msgLine-12,line2[prevMessage]); // Handle very short calling at lists
+        if (strncmp("Calling",line2[prevMessage],7)) centreText(line2[prevMessage],railDetailScrollBaseline(scrollStopsYpos+msgLine-12),msgMargin,msgWidth);
+        else u8g2.drawStr(msgMargin,railDetailScrollBaseline(scrollStopsYpos+msgLine-12),line2[prevMessage]); // Handle very short calling at lists
       }
-      if (scrollStopsLength<msgWidth && strncmp("Calling",line2[currentMessage],7)) centreText(line2[currentMessage],scrollStopsYpos+msgLine-2,msgMargin,msgWidth); // Centre text if it fits
-      else u8g2.drawStr(msgMargin,scrollStopsYpos+msgLine-2,line2[currentMessage]);
+      if (scrollStopsLength<msgWidth && strncmp("Calling",line2[currentMessage],7)) centreText(line2[currentMessage],railDetailScrollBaseline(scrollStopsYpos+msgLine-2),msgMargin,msgWidth); // Centre text if it fits
+      else u8g2.drawStr(msgMargin,railDetailScrollBaseline(scrollStopsYpos+msgLine-2),line2[currentMessage]);
       scrollStopsYpos--;
       if (scrollStopsYpos==0) timer=millis()+1500;
     } else {
       // we're scrolling left
-      if (scrollStopsLength<msgWidth && strncmp("Calling",line2[currentMessage],7)) centreText(line2[currentMessage],msgLine-1,msgMargin,msgWidth); // Centre text if it fits
-      else u8g2.drawStr(scrollStopsXpos,msgLine-1,line2[currentMessage]);
+      if (scrollStopsLength<msgWidth && strncmp("Calling",line2[currentMessage],7)) centreText(line2[currentMessage],railDetailScrollBaseline(msgLine-1),msgMargin,msgWidth); // Centre text if it fits
+      else u8g2.drawStr(scrollStopsXpos,railDetailScrollBaseline(msgLine-1),line2[currentMessage]);
       if (scrollStopsLength < msgWidth) {
         // we don't need to scroll this message, it fits so just set a longer timer
         timer=millis()+6000;
