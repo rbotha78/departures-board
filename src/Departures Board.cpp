@@ -135,8 +135,13 @@ static const char successPage[] =
 "<h2>Upload another file</h2><form method=\"post\" action=\"/upload\" enctype=\"multipart/form-data\"><input type=\"file\" name=\"name\"><input class=\"button\" type=\"submit\" value=\"Upload\"></form>\n"
 "</body></html>";
 
-#define SCREEN_WIDTH 256 // Departures board virtual width, in pixels
-#define SCREEN_HEIGHT 64 // Departures board virtual height, in pixels
+#if defined(DISPLAY_CYD)
+#define SCREEN_WIDTH 304 // Native CYD canvas width, in pixels
+#define SCREEN_HEIGHT 136 // Native CYD canvas height, in pixels
+#else
+#define SCREEN_WIDTH 256 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#endif
 
 #if defined(DISPLAY_CYD)
 #define DIMMED_BRIGHTNESS 20 // CYD display brightness level when in sleep/screensaver mode (0-255)
@@ -147,19 +152,35 @@ U8G2_CYD_TFT u8g2;
 U8G2_SSD1322_NHD_256X64_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ GPIO_NUM_26, /* dc=*/ GPIO_NUM_5, /* reset=*/ U8X8_PIN_NONE);
 #endif
 
-// Vertical line positions on the virtual departures-board display (National Rail)
+#if defined(DISPLAY_CYD)
+// Vertical line positions on the native CYD display (National Rail)
+#define LINE0 0
+#define LINE1 28
+#define LINE2 54
+#define LINE3 80
+#define LINE4 106
+
+// Vertical line positions on the native CYD display (Underground)
+#define ULINE0 0
+#define ULINE1 32
+#define ULINE2 62
+#define ULINE3 92
+#define ULINE4 112
+#else
+// Vertical line positions on the OLED display (National Rail)
 #define LINE0 0
 #define LINE1 13
 #define LINE2 28
 #define LINE3 41
 #define LINE4 55
 
-// Vertical line positions on the virtual departures-board display (Underground)
+// Vertical line positions on the OLED display (Underground)
 #define ULINE0 0
 #define ULINE1 15
 #define ULINE2 28
 #define ULINE3 41
 #define ULINE4 56
+#endif
 
 static Ticker restartTimer; // used to schedule reboots
 
@@ -316,11 +337,20 @@ static const uint8_t UndergroundClock8[150] U8G2_FONT_SECTION("UndergroundClock8
 // Body font used for plain setup/notification screen text (no icon glyphs), per the configurable font style
 static const uint8_t *bodyFont() {
 #if defined(DISPLAY_CYD)
-  return (u8g2.getFontStyle() == CYD_FONT_UNDERGROUND) ? Underground10 : NatRailSmall9;
+  return (u8g2.getFontStyle() == CYD_FONT_UNDERGROUND) ? u8g2_font_9x18B_tf : u8g2_font_9x18_tf;
 #else
   return NatRailSmall9;
 #endif
 }
+
+#if defined(DISPLAY_CYD)
+#define NatRailSmall9 u8g2_font_9x18_tf
+#define NatRailTall12 u8g2_font_10x20_tf
+#define NatRailClockSmall7 u8g2_font_9x18_tn
+#define NatRailClockLarge9 u8g2_font_logisoso24_tn
+#define Underground10 u8g2_font_9x18B_tf
+#define UndergroundClock8 u8g2_font_9x18_tn
+#endif
 
 // Service attribution texts
 static const char nrAttributionn[] = "Powered by National Rail Enquiries";
@@ -552,9 +582,21 @@ fetchModes fetchMode = FETCH_BOARD;
  * Graphics helper functions for the virtual departures-board display
 */
 void blankArea(int x, int y, int w, int h) {
+#if defined(DISPLAY_CYD)
+  if (w == 256) w = SCREEN_WIDTH;
+  if (h >= 8 && h <= 11) h = 20;
+#endif
   u8g2.setDrawColor(0);
   u8g2.drawBox(x,y,w,h);
   u8g2.setDrawColor(1);
+}
+
+void setDisplayClipWindow(int x0, int y0, int x1, int y1) {
+#if defined(DISPLAY_CYD)
+  if (x1 == 256) x1 = SCREEN_WIDTH;
+  if (y1 - y0 >= 8 && y1 - y0 <= 11) y1 = y0 + 20;
+#endif
+  u8g2.setClipWindow(x0,y0,x1,y1);
 }
 
 int getStringWidth(const char *message) {
@@ -577,24 +619,58 @@ void centreText(const char *message, int line, int margin=0, int maxWidth = SCRE
   else drawTruncatedText(message,line,0);
 }
 
+void drawStationTitle(const char *message, int x, int y) {
+  u8g2.drawStr(x,y,message);
+#if defined(DISPLAY_CYD)
+  u8g2.drawStr(x+1,y,message);
+#endif
+}
+
+void drawTruncatedStationTitle(const char *message, int line, int x) {
+  char buff[strlen(message)+4];
+  int maxWidth = SCREEN_WIDTH - 6 - x;
+  strcpy(buff,message);
+  int i = strlen(buff);
+  while (u8g2.getStrWidth(buff)>maxWidth && i) buff[i--] = '\0';
+  strcat(buff,"...");
+  drawStationTitle(buff,x,line);
+}
+
+void centreStationTitle(const char *message, int line, int margin=0, int maxWidth = SCREEN_WIDTH) {
+  int width = u8g2.getStrWidth(message);
+  if (width<=maxWidth) drawStationTitle(message,((maxWidth-width)/2)+margin,line);
+  else drawTruncatedStationTitle(message,line,0);
+}
+
 void drawProgressBar(int percent) {
-  int newPosition = (percent*190)/100;
-  u8g2.drawFrame(32,36,192,12);
+#if defined(DISPLAY_CYD)
+  const int x = 32;
+  const int y = 80;
+  const int width = 240;
+  const int height = 14;
+#else
+  const int x = 32;
+  const int y = 36;
+  const int width = 192;
+  const int height = 12;
+#endif
+  int newPosition = (percent*(width-2))/100;
+  u8g2.drawFrame(x,y,width,height);
   if (prevProgressBarPosition>newPosition) {
     for (int i=prevProgressBarPosition;i>=newPosition;i--) {
       u8g2.setDrawColor(0);
-      u8g2.drawBox(33,37,190,10);
+      u8g2.drawBox(x+1,y+1,width-2,height-2);
       u8g2.setDrawColor(1);
-      u8g2.drawBox(33,37,i,10);
+      u8g2.drawBox(x+1,y+1,i,height-2);
       u8g2.updateDisplayArea(0,3,32,3);
       delay(5);
     }
   } else {
     for (int i=prevProgressBarPosition;i<=newPosition;i++) {
       u8g2.setDrawColor(0);
-      u8g2.drawBox(33,37,190,10);
+      u8g2.drawBox(x+1,y+1,width-2,height-2);
       u8g2.setDrawColor(1);
-      u8g2.drawBox(33,37,i,10);
+      u8g2.drawBox(x+1,y+1,i,height-2);
       u8g2.updateDisplayArea(0,3,32,3);
       delay(5);
     }
@@ -604,15 +680,24 @@ void drawProgressBar(int percent) {
 
 void progressBar(const char *text, int percent) {
   u8g2.setFont(bodyFont());
+#if defined(DISPLAY_CYD)
+  blankArea(0,52,SCREEN_WIDTH,48);
+  centreText(text,52);
+#else
   blankArea(0,24,256,25);
   centreText(text,24);
+#endif
   drawProgressBar(percent);
 }
 
 void drawFirmware() {
   char firmware[16];
   sprintf(firmware,"B%d.%d-W%d.%d",VERSION_MAJOR,VERSION_MINOR,WEBAPPVER_MAJOR,WEBAPPVER_MINOR);
-   u8g2.drawStr(0,53,firmware);
+#if defined(DISPLAY_CYD)
+  u8g2.drawStr(0,SCREEN_HEIGHT-20,firmware);
+#else
+  u8g2.drawStr(0,53,firmware);
+#endif
 }
 
 void drawStartupHeading() {
@@ -631,7 +716,11 @@ void drawStationHeader(const char *stopName, const char *callingStopName, const 
     blankArea(0,LINE0,256,LINE1-1);
   }
 
+#if defined(DISPLAY_CYD)
+  u8g2.setFont(u8g2_font_10x20_tf);
+#else
   u8g2.setFont(NatRailSmall9);
+#endif
   char boardTitle[95];
   strlcpy(boardTitle,stopName,sizeof(boardTitle));
   if (timeOffset || platFilter[0] || callingStopName[0]) strlcat(boardTitle," ",sizeof(boardTitle));
@@ -666,20 +755,20 @@ void drawStationHeader(const char *stopName, const char *callingStopName, const 
     if (callingStopName[0] || boardTitleWidth+dateWidth+10+titleOffset>=SCREEN_WIDTH) {
       blankArea(SCREEN_WIDTH-70,dateY,70,SCREEN_HEIGHT-dateY);
       u8g2.drawStr(SCREEN_WIDTH-dateWidth,dateY-1,sysTime); // Date bottom right
-      if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreText(boardTitle,LINE0-1);
-      else drawTruncatedText(boardTitle,LINE0-1,titleOffset);
+      if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreStationTitle(boardTitle,LINE0-1);
+      else drawTruncatedStationTitle(boardTitle,LINE0-1,titleOffset);
     } else {
       u8g2.drawStr(SCREEN_WIDTH-dateWidth,LINE0-1,sysTime); // right-aligned date top
       if ((SCREEN_WIDTH-boardTitleWidth)/2 < dateWidth+8) {
         // station name left aligned
-        u8g2.drawStr(titleOffset,LINE0-1,boardTitle);
+        drawStationTitle(boardTitle,titleOffset,LINE0-1);
       } else {
-        centreText(boardTitle,LINE0-1);
+        centreStationTitle(boardTitle,LINE0-1);
       }
     }
   } else {
-    if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreText(boardTitle,LINE0-1);
-    else drawTruncatedText(boardTitle,LINE0-1,titleOffset);
+    if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreStationTitle(boardTitle,LINE0-1);
+    else drawTruncatedStationTitle(boardTitle,LINE0-1,titleOffset);
   }
 
   if (titleOffset) u8g2.drawStr(0,LINE0-1,schedulerActive?"\x87":"\x88");
@@ -780,11 +869,21 @@ void drawNSEclock(bool fullDraw = true) {
 
 // Draw the NR clock (if the time has changed)
 void drawCurrentTime() {
+#if !defined(DISPLAY_CYD)
   char timeSeg[7];
+#endif
 
   if (strcmp(displayedTime,currentTime)) {
     if (noServiceClockIsActive) drawNSEclock(false);
     else {
+#if defined(DISPLAY_CYD)
+      u8g2.setFont(u8g2_font_logisoso20_tn);
+      int clockWidth = getStringWidth("88:88:88");
+      int clockX = (SCREEN_WIDTH-clockWidth)/2;
+      blankArea(clockX,LINE4,clockWidth,SCREEN_HEIGHT-LINE4);
+      u8g2.drawStr(clockX,LINE4-1,currentTime);
+      u8g2.setFont(NatRailSmall9);
+#else
       u8g2.setFont(NatRailClockLarge9);
       blankArea(96,LINE4,64,SCREEN_HEIGHT-LINE4);
       strlcpy(timeSeg,currentTime,7);
@@ -793,6 +892,7 @@ void drawCurrentTime() {
       strcpy(timeSeg,currentTime+6);
       u8g2.drawStr(144,LINE4+1,timeSeg);
       u8g2.setFont(NatRailSmall9);
+#endif
       u8g2.updateDisplayArea(12,6,8,2);
       strcpy(displayedTime,currentTime);
       if (dateEnabled && timeinfo.tm_mday!=dateDay) {
@@ -1732,7 +1832,11 @@ void drawPrimaryService(bool showVia) {
   char etd[16];
   char plat[9];
 
+#if defined(DISPLAY_CYD)
+  u8g2.setFont(u8g2_font_9x18_tf);
+#else
   u8g2.setFont(NatRailTall12);
+#endif
   blankArea(0,LINE1,256,LINE2-LINE1);
   destPos = u8g2.drawStr(0,LINE1-1,station.service[0].sTime) + 6;
   if (isDigit(station.service[0].etd[0])) sprintf(etd,"Exp %s",station.service[0].etd);
@@ -1769,7 +1873,7 @@ void drawPrimaryService(bool showVia) {
 // Draw the secondary service line
 void drawServiceLine(int line, int y) {
   char clipDestination[MAXLOCATIONSIZE+5];
-  char ordinal[5];
+  char ordinal[8];
   char plat[9];
   int destPos;
 
@@ -1792,8 +1896,8 @@ void drawServiceLine(int line, int y) {
     if (hideOrdinals) {
       destPos = u8g2.drawStr(0,y-1,station.service[line].sTime) + 6;
     } else {
-      u8g2.drawStr(0,y-1,ordinal);
-      destPos = u8g2.drawStr(21,y-1,station.service[line].sTime) + 25;
+      int timeX = u8g2.drawStr(0,y-1,ordinal) + 6;
+      destPos = timeX + u8g2.drawStr(timeX,y-1,station.service[line].sTime) + 6;
     }
     char etd[16];
     if (isDigit(station.service[line].etd[0])) sprintf(etd,"Exp %s",station.service[line].etd);
@@ -2799,7 +2903,7 @@ void departureBoardLoop() {
 
   if (isScrollingStops && millis()>timer && !isSleeping && !noScrolling) {
     blankArea(msgMargin,msgLine,msgWidth,9);
-    u8g2.setClipWindow(msgMargin,msgLine,SCREEN_WIDTH,msgLine+9);
+    setDisplayClipWindow(msgMargin,msgLine,SCREEN_WIDTH,msgLine+9);
     if (scrollStopsYpos) {
       // we're scrolling up the message initially
       // if the previous message didn't scroll then we need to scroll it up off the screen
@@ -2834,7 +2938,7 @@ void departureBoardLoop() {
     blankArea(0,LINE3,256,9);
     if (scrollServiceYpos) {
       // we're scrolling the service into view
-      u8g2.setClipWindow(0,LINE3,256,LINE3+9);
+      setDisplayClipWindow(0,LINE3,256,LINE3+9);
       // if the prev service is showing, we need to scroll it up off
       if (prevService>0) drawServiceLine(prevService,scrollServiceYpos+LINE3-12);
       drawServiceLine(line3Service,scrollServiceYpos+LINE3-1);
@@ -2960,7 +3064,7 @@ void undergroundArrivalsLoop() {
     blankArea(0,ULINE3,256,10);
     if (scrollServiceYpos) {
       // we're scrolling up the message initially
-      u8g2.setClipWindow(0,ULINE3,256,ULINE3+10);
+      setDisplayClipWindow(0,ULINE3,256,ULINE3+10);
       // Was the previous display a service?
       if (prevService<station.numServices) {
         drawUndergroundService(prevService,scrollServiceYpos+ULINE3-13);
@@ -3007,11 +3111,11 @@ void undergroundArrivalsLoop() {
     blankArea(0,ULINE1,256,ULINE3-ULINE1);
     fullRefresh = true;
     // we're scrolling the primary service(s) into view
-    u8g2.setClipWindow(0,ULINE1,256,ULINE1+10);
+    setDisplayClipWindow(0,ULINE1,256,ULINE1+10);
     if (station.numServices) drawUndergroundService(0,scrollPrimaryYpos+ULINE1-1);
     else centreText("There are no scheduled arrivals at this station.",scrollPrimaryYpos+ULINE1-1);
     if (station.numServices>1) {
-      u8g2.setClipWindow(0,ULINE2,256,ULINE2+10);
+      setDisplayClipWindow(0,ULINE2,256,ULINE2+10);
       drawUndergroundService(1,scrollPrimaryYpos+ULINE2-1);
     }
     u8g2.setMaxClipWindow();
@@ -3116,7 +3220,7 @@ void busDeparturesLoop() {
     if (scrollServiceYpos) {
       blankArea(0,ULINE3,256,10);
       // we're scrolling up the message
-      u8g2.setClipWindow(0,ULINE3,256,ULINE3+10);
+      setDisplayClipWindow(0,ULINE3,256,ULINE3+10);
       // Was the previous display a service?
       if (prevService<station.numServices) {
         drawBusService(prevService,scrollServiceYpos+ULINE3-13,busDestX);
@@ -3143,19 +3247,19 @@ void busDeparturesLoop() {
     blankArea(0,ULINE1,256,ULINE3-ULINE1+10);
     fullRefresh = true;
     // we're scrolling the primary service(s) into view
-    u8g2.setClipWindow(0,ULINE1,256,ULINE1+10);
+    setDisplayClipWindow(0,ULINE1,256,ULINE1+10);
     if (station.numServices) drawBusService(0,scrollPrimaryYpos+ULINE1-1,busDestX);
     else centreText("There are no scheduled services at this stop.",scrollPrimaryYpos+ULINE1-1);
     if (station.numServices>1) {
-      u8g2.setClipWindow(0,ULINE2,256,ULINE2+10);
+      setDisplayClipWindow(0,ULINE2,256,ULINE2+10);
       drawBusService(1,scrollPrimaryYpos+ULINE2-1,busDestX);
     }
     if (station.numServices>2) {
-      u8g2.setClipWindow(0,ULINE3,256,ULINE3+10);
+      setDisplayClipWindow(0,ULINE3,256,ULINE3+10);
       drawBusService(2,scrollPrimaryYpos+ULINE3-1,busDestX);
     } else if (station.numServices<3 && messages.numMessages==1) {
       // scroll up the attribution once...
-      u8g2.setClipWindow(0,ULINE3,256,ULINE3+10);
+      setDisplayClipWindow(0,ULINE3,256,ULINE3+10);
       centreText(btAttribution,scrollPrimaryYpos+ULINE3-1);
     }
     u8g2.setMaxClipWindow();

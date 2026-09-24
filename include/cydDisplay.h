@@ -5,8 +5,7 @@
  * Provides high-speed rendering of U8g2 graphics to the onboard 320x240 ILI9341/ST7789 TFT.
  *
  * Supports:
- *  - Fullscreen Scaled Mode (320x128 centered vertically on 320x240)
- *  - Pixel-perfect 1:1 Centered Mode (256x64 centered on 320x240)
+ *  - Native 304x136 CYD canvas centered on the 320x240 TFT
  *  - Configurable UK station color palettes (Amber, White, Yellow, Green, Orange, Cyan)
  *  - Smooth LEDC Backlight PWM brightness control on GPIO 21
  */
@@ -28,10 +27,11 @@ enum CydColorScheme {
   CYD_COLOR_CYAN = 5     // Ice Cyan (0, 230, 255)
 };
 
-// Scaling modes
+// Legacy scale values retained for configuration compatibility. CYD now uses
+// the native 304x136 layout for either value.
 enum CydScaleMode {
-  CYD_SCALE_FULLSCREEN = 0, // 320x128 scaled (1.25x width, 2x height, 56px V-margin)
-  CYD_SCALE_CENTERED = 1    // 256x64 1:1 centered (32px H-margin, 88px V-margin)
+  CYD_SCALE_FULLSCREEN = 0,
+  CYD_SCALE_CENTERED = 1
 };
 
 // Text font style for setup/notification screens (National Rail vs London Underground)
@@ -55,9 +55,10 @@ extern uint16_t cyd_fg_color;
 extern uint16_t cyd_bg_color;
 extern uint8_t cyd_current_brightness;
 
-// Fast 1.25x horizontal scaling lookup map (8 virtual pixels -> 10 screen pixels)
-// Symmetrical mapping: 0, 1, 2, 2, 3, 4, 5, 6, 6, 7
-static const uint8_t cyd_scale_map[10] = {0, 1, 2, 2, 3, 4, 5, 6, 6, 7};
+#define CYD_NATIVE_WIDTH 304
+#define CYD_NATIVE_HEIGHT 136
+#define CYD_NATIVE_X_OFFSET ((320 - CYD_NATIVE_WIDTH) / 2)
+#define CYD_NATIVE_Y_OFFSET ((240 - CYD_NATIVE_HEIGHT) / 2)
 
 // Helper to calculate 16-bit RGB565 color for a scheme
 inline uint16_t cyd_get_palette_color(CydColorScheme scheme) {
@@ -99,70 +100,27 @@ inline void cyd_set_backlight(uint8_t brightness) {
 inline void cyd_draw_tiles(uint8_t tile_x, uint8_t tile_y, uint8_t cnt, const uint8_t *tile_ptr) {
   if (cnt == 0 || tile_ptr == nullptr) return;
 
-  uint16_t line_buffer[320];
+  uint16_t line_buffer[CYD_NATIVE_WIDTH];
+  int width = cnt * 8;
 
-  if (cyd_current_scale_mode == CYD_SCALE_FULLSCREEN) {
-    // 320x128 Scaled Mode:
-    // tile_x: 0..31 -> screen_x: tile_x * 10 (0..310)
-    // tile_y: 0..7  -> screen_y: 56 + (tile_y * 16) (56..184)
-    // width: cnt * 10 (up to 320)
-    // height: 16 lines (8 virtual pixels * 2x)
-    int screen_x = tile_x * 10;
-    int screen_y = 56 + (tile_y * 16);
-    int width = cnt * 10;
-    int height = 16;
+  cyd_tft.startWrite();
+  cyd_tft.setAddrWindow(CYD_NATIVE_X_OFFSET + tile_x * 8, CYD_NATIVE_Y_OFFSET + tile_y * 8, width, 8);
 
-    cyd_tft.startWrite();
-    cyd_tft.setAddrWindow(screen_x, screen_y, width, height);
-
-    for (uint8_t vy = 0; vy < 8; vy++) {
-      uint8_t bit_mask = (1 << vy);
-
-      // Render one horizontal line of pixels across all tiles in this run
-      for (uint8_t c = 0; c < cnt; c++) {
-        const uint8_t *tptr = tile_ptr + (c * 8);
-        uint16_t *dest = line_buffer + (c * 10);
-        for (uint8_t sx = 0; sx < 10; sx++) {
-          dest[sx] = (tptr[cyd_scale_map[sx]] & bit_mask) ? cyd_fg_color : cyd_bg_color;
-        }
+  for (uint8_t vy = 0; vy < 8; vy++) {
+    uint8_t bit_mask = (1 << vy);
+    for (uint8_t c = 0; c < cnt; c++) {
+      const uint8_t *tptr = tile_ptr + (c * 8);
+      uint16_t *dest = line_buffer + (c * 8);
+      for (uint8_t sx = 0; sx < 8; sx++) {
+        dest[sx] = (tptr[sx] & bit_mask) ? cyd_fg_color : cyd_bg_color;
       }
-
-      // Push the scanline twice for 2x vertical scale
-      cyd_tft.pushColors(line_buffer, width, true);
-      cyd_tft.pushColors(line_buffer, width, true);
     }
-    cyd_tft.endWrite();
-
-  } else {
-    // 256x64 Centered Mode:
-    // tile_x: 0..31 -> screen_x: 32 + (tile_x * 8)
-    // tile_y: 0..7  -> screen_y: 88 + (tile_y * 8)
-    // width: cnt * 8
-    // height: 8
-    int screen_x = 32 + (tile_x * 8);
-    int screen_y = 88 + (tile_y * 8);
-    int width = cnt * 8;
-    int height = 8;
-
-    cyd_tft.startWrite();
-    cyd_tft.setAddrWindow(screen_x, screen_y, width, height);
-
-    for (uint8_t vy = 0; vy < 8; vy++) {
-      uint8_t bit_mask = (1 << vy);
-      for (uint8_t c = 0; c < cnt; c++) {
-        const uint8_t *tptr = tile_ptr + (c * 8);
-        uint16_t *dest = line_buffer + (c * 8);
-        for (uint8_t sx = 0; sx < 8; sx++) {
-          dest[sx] = (tptr[sx] & bit_mask) ? cyd_fg_color : cyd_bg_color;
-        }
-      }
-      cyd_tft.pushColors(line_buffer, width, true);
-    }
-    cyd_tft.endWrite();
+    cyd_tft.pushColors(line_buffer, width, true);
   }
+  cyd_tft.endWrite();
 }
 
-// U8x8 display info structure for 256x64 departures board buffer
+// U8x8 display info structure for the native 304x136 CYD buffer
 static const u8x8_display_info_t u8x8_cyd_display_info = {
   /* chip_enable_level = */ 0,
   /* chip_disable_level = */ 1,
@@ -177,12 +135,12 @@ static const u8x8_display_info_t u8x8_cyd_display_info = {
   /* i2c_bus_clock_100kHz = */ 4,
   /* data_setup_time_ns = */ 0,
   /* write_pulse_width_ns = */ 0,
-  /* tile_width = */ 32,
-  /* tile_height = */ 8,
+  /* tile_width = */ 38,
+  /* tile_height = */ 17,
   /* default_x_offset = */ 0,
   /* flipmode_x_offset = */ 0,
-  /* pixel_width = */ 256,
-  /* pixel_height = */ 64
+  /* pixel_width = */ CYD_NATIVE_WIDTH,
+  /* pixel_height = */ CYD_NATIVE_HEIGHT
 };
 
 // Custom U8x8 callback connecting U8g2 buffer to CYD TFT
@@ -225,19 +183,17 @@ inline uint8_t u8x8_d_cyd_tft(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *
 }
 
 // Setup routine linking U8g2 to our custom CYD driver
-inline void u8g2_Setup_cyd_256x64(u8g2_t *u8g2, const u8g2_cb_t *rotation) {
-  uint8_t tile_buf_height;
-  uint8_t *buf;
+inline void u8g2_Setup_cyd_native(u8g2_t *u8g2, const u8g2_cb_t *rotation) {
+  static uint8_t buf[38 * 17 * 8];
   u8g2_SetupDisplay(u8g2, u8x8_d_cyd_tft, u8x8_cad_empty, u8x8_byte_empty, u8x8_dummy_cb);
-  buf = u8g2_m_32_8_f(&tile_buf_height);
-  u8g2_SetupBuffer(u8g2, buf, tile_buf_height, u8g2_ll_hvline_vertical_top_lsb, rotation);
+  u8g2_SetupBuffer(u8g2, buf, 17, u8g2_ll_hvline_vertical_top_lsb, rotation);
 }
 
 // C++ Display Class derived from U8G2
 class U8G2_CYD_TFT : public U8G2 {
 public:
   U8G2_CYD_TFT(const u8g2_cb_t *rotation = U8G2_R0) : U8G2() {
-    u8g2_Setup_cyd_256x64(&u8g2, rotation);
+    u8g2_Setup_cyd_native(&u8g2, rotation);
   }
 
   TFT_eSPI &getTft() { return cyd_tft; }
@@ -253,7 +209,6 @@ public:
 
   void setScaleMode(CydScaleMode mode) {
     cyd_current_scale_mode = mode;
-    clearScreen();
   }
 
   CydScaleMode getScaleMode() const {
@@ -275,5 +230,9 @@ public:
   void clearScreen() {
     cyd_tft.fillScreen(TFT_BLACK);
     clearBuffer();
+  }
+
+  void updateDisplayArea(uint8_t, uint8_t, uint8_t, uint8_t) {
+    sendBuffer();
   }
 };
