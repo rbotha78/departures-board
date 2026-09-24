@@ -231,6 +231,46 @@ static const uint8_t NatRailSmall9[1329] U8G2_FONT_SECTION("NatRailSmall9") =
   "\251\5\0\10!\252\5\0\10!\253\5\0\10!\254\5\0\10!\255\5\0\10!\256\5\0\10!\257\5"
   "\0\10!\260\12DXk\224HJ\24\0\0\0\0";
 
+#if defined(DISPLAY_CYD)
+// Arimo Regular rasterized at 11 px, retained for future CYD font comparison.
+// Source: https://github.com/googlefonts/Arimo (SIL Open Font License 1.1).
+static const uint8_t ArimoRegular11[1065] U8G2_FONT_SECTION("ArimoRegular11") =
+  "_\0\3\2\4\4\2\4\5\12\12\0\370\0\372\2\370\1^\2\330\4\14 \5\0\342\4!\6\201\303"
+  "\304%\42\6\23\36E\22#\17\206\202U\232$\303\30U\206%\7\42\0$\16\206\206\315\20eI\272"
+  "\312b\62$\0%\20\211\202\216\34u\211\223\304\322\234FI\24\12&\17\207\302\325\30'\241\230dQ"
+  "\22E\322\60'\6\21\237D\0(\11\242\3M\242\364\224\4)\11\243\2EV\352\245\4*\10$\26"
+  "\305\220(\0+\12U\217U\30\15R\30\1,\6!\343\204\0-\6\22\37\205\0.\6\21\337D\0"
+  "/\12\203\302T\61\252D\21\0\60\15\206\202\325\324&\212I\226D\231\4\61\11\204\203\215\262\365\62\4"
+  "\62\12\204\203\315\20e\245\266!\63\14\205\203\315\22\205\245\61\211\206\5\64\15\206\202\235\250%Q\227a"
+  "L\23\0\65\16\205\203\305\220\204\341\20\246R\62$\0\66\17\205\203\315\22%\341\220DI&E\13\0"
+  "\67\14\205\203\305\240\205Y\230\205\65\0\70\21\205\203\305\220DI\224\14I\224dR\62$\0\71\17\205"
+  "\203\305T\211\222H\31\262$J&\0:\6a\313D\30;\6q\317D(<\10U\213\335\220\245\6"
+  "=\11E\223\305\240c\203\0>\11U\213\205\252FJ\10\77\12e\213\315\22\211Y\61\2@\31\251\303"
+  "\336\220\211Q\62$J\226(Y\242d\211\22)\222\42\345\320\220\1A\17\207\302],&a\42e\321"
+  " \205j\0B\20\206\303\305\20eI\226d\311\240d\343\260\0C\15\206\3\316\220\204j\253\226\14\11"
+  "\0D\14\206\3\306\240d\243\267aH\0E\14\206\303\305\240\244\325AI\323aF\12\205\303\305\261\70"
+  "\214E\0G\17\207C\316\20\205I\134\33\322M\31\24\0H\12\206\3F\350\70\14\242\61I\6\201\303"
+  "\304AJ\12\205\202\325\330QR\26\0K\16\206\303E\226D\25i\333\242Z\22\6L\10\205\203E\330"
+  "\307AM\20\207CF\272\15\331\22-\25\245\42ER\1N\17\206\3F\270)\221\22I\211\224hc"
+  "\0O\15\207C\316\20\205I\352\61\32\42\0P\15\206\303\305\240d\243\226\14JZ\5Q\17\247C\316"
+  "\20\205I\352\61\32\322\34P\0R\16\206\3\306\240\204\306a\311\222,\11\3S\15\206\303\315\220dI"
+  "\354\230\14\11\0T\11\206\302\305-\355\23\0U\12\206\3F\350\307dH\0V\17\207\302E\232\204I"
+  "\26e\245,I\325\14W\25\212\202F\230MZ\22iI\224\224\302$\223\222L\332\264\10X\16\206\303"
+  "E\66D\225\320\226DY\22\6Y\14\206\303E\250E\211\64\246m\0Z\13\206\302\315 \212\255a\70"
+  "\14[\10\242\303\304\322/\2\134\12\203\302D\224EmQ\0]\10\242\302\204\322/\3^\11ERU"
+  "\226DY\1_\6\26\242\305\1`\5\0\42\5a\15e\213\305\20&C\22%Q\262\4b\16\205\203"
+  "E\30\16I\224d\246dH\0c\12d\213\305\22i\245!\1d\12\204\203]\66LN\203\0e\13"
+  "e\213\315\22%\303\230.\0f\12\203\302\214\222,Q\27\0g\12\204\213\305 \71\15\332 h\12\204"
+  "\203E\226\15\222\247\0i\7\201\203D\62\14j\11\242\202L\226\364\242\0k\13\204\203EVR\22i"
+  "i\12l\6\201\203\304Am\16gK\306\220L\221\24I\221\24I\5n\10d\213\305 y\12o\14"
+  "e\213\305\220DIfJ\206\4p\16\205\213\305\220DIfJ\206$\14\1q\12\204\213\305 \71\15"
+  "Z\1r\7b\7\305\322\5s\12d\213\305\222\211\332\220\0t\11s\302L\262DM\2u\10d\213"
+  "E\344i\20v\14e\212E\226DI\224\324\264\10w\16h\12F\344\224$J\24FN\21\0x\12"
+  "e\212M\224\324LI-y\16\205\212E\226DI\224\324\264\60\313\0z\12e\212\315\220eZm\20"
+  "{\12\243\2U\22U\244n\1|\7\241\303\304C\0}\12\243\2\205\324\26F\25\5~\6%\233\205"
+  ":\0\0\0\4\377\377\0";
+#endif
+
 static uint8_t NatRailTall12[1102] U8G2_FONT_SECTION("NatRailTall12") =
   "c\0\3\2\4\4\2\5\5\11\14\0\375\11\375\11\0\1Q\2\235\4\65 \5\0f\12!\7\221B"
   "\211C\22\42\7#^\212D\11#\21\225B\233R\222\14J)\211\222dPJI\2$\17\225B\253"
@@ -337,6 +377,14 @@ static const uint8_t UndergroundClock8[150] U8G2_FONT_SECTION("UndergroundClock8
 // Body font used for plain setup/notification screen text (no icon glyphs), per the configurable font style
 static const uint8_t *bodyFont() {
   return NatRailSmall9;
+}
+
+static void setRailDetailFont() {
+#if defined(DISPLAY_CYD)
+  u8g2.setFont(NatRailTall12);
+#else
+  u8g2.setFont(NatRailSmall9);
+#endif
 }
 
 // Service attribution texts
@@ -1830,7 +1878,7 @@ void drawPrimaryService(bool showVia) {
   char plat[9];
 
 #if defined(DISPLAY_CYD)
-  u8g2.setFont(NatRailSmall9);
+  setRailDetailFont();
 #else
   u8g2.setFont(NatRailTall12);
 #endif
@@ -1863,8 +1911,8 @@ void drawPrimaryService(bool showVia) {
     strcat(clipDestination,"...");
   }
   u8g2.drawStr(destPos,LINE1-1,clipDestination);
-  // Set font back to standard
-  u8g2.setFont(NatRailSmall9);
+  // Restore the font used for rail detail text.
+  setRailDetailFont();
 #if defined(DISPLAY_CYD)
   u8g2.setTextScale(previousTextScale);
 #endif
@@ -1893,7 +1941,7 @@ void drawServiceLine(int line, int y) {
       break;
   }
 
-  u8g2.setFont(NatRailSmall9);
+  setRailDetailFont();
   blankArea(0,y,256,9);
 
   if (line<station.numServices) {
@@ -2091,7 +2139,7 @@ void drawStationBoard() {
   isScrollingStops=false;
   currentMessage=numMessages-1;
 
-  u8g2.setFont(NatRailSmall9);
+  setRailDetailFont();
   u8g2.sendBuffer();
 }
 
@@ -2798,6 +2846,7 @@ void handleStationPicker(AsyncWebServerRequest *request)
 void departureBoardLoop() {
 #if defined(DISPLAY_CYD)
   u8g2.setTextScale(1);
+  setRailDetailFont();
 #endif
 
   if (millis() > nextDataUpdate && !fetchInProgress && lastUpdateResult != UPD_UNAUTHORISED && !isSleeping && wifiConnected) {
@@ -2967,6 +3016,7 @@ void departureBoardLoop() {
   }
 #if defined(DISPLAY_CYD)
   u8g2.setTextScale(2);
+  u8g2.setFont(NatRailSmall9);
 #endif
 }
 
