@@ -61,6 +61,7 @@
 #include <webgui/rss.h>
 #include <gfx/xbmgfx.h>
 #include <time.h>
+#include <array>
 
 #include <SPI.h>
 #include <U8g2lib.h>
@@ -2701,6 +2702,158 @@ void handleStreamGzipFlashFile(String filename, const uint8_t *filedata, size_t 
   request->send(response);
 }
 
+// Screenshot capture in BMP format from the U8g2 display buffer
+void handleScreenshot(AsyncWebServerRequest *request) {
+#if defined(DISPLAY_CYD)
+  const uint16_t width = CYD_NATIVE_WIDTH;
+  const uint16_t height = CYD_NATIVE_HEIGHT;
+  const uint8_t tile_width = CYD_NATIVE_TILE_WIDTH;
+  uint8_t fgR = ((cyd_fg_color >> 11) & 0x1F) * 255 / 31;
+  uint8_t fgG = ((cyd_fg_color >> 5) & 0x3F) * 255 / 63;
+  uint8_t fgB = (cyd_fg_color & 0x1F) * 255 / 31;
+#else
+  const uint16_t width = 256;
+  const uint16_t height = 64;
+  const uint8_t tile_width = 32;
+  uint8_t fgR = 255;
+  uint8_t fgG = 176;
+  uint8_t fgB = 0;
+#endif
+
+  const uint16_t row_bytes = width / 8;
+  const uint32_t fileSize = 62 + (uint32_t)row_bytes * height;
+  const uint8_t *u8g2_buf = u8g2.getBufferPtr();
+
+  std::array<uint8_t, 62> header = {};
+  header[0] = 'B';
+  header[1] = 'M';
+  header[2] = (uint8_t)(fileSize);
+  header[3] = (uint8_t)(fileSize >> 8);
+  header[4] = (uint8_t)(fileSize >> 16);
+  header[5] = (uint8_t)(fileSize >> 24);
+  header[10] = 62; // bfOffBits
+
+  header[14] = 40; // biSize
+  header[18] = (uint8_t)(width);
+  header[19] = (uint8_t)(width >> 8);
+  header[22] = (uint8_t)(height);
+  header[23] = (uint8_t)(height >> 8);
+  header[26] = 1;  // biPlanes
+  header[28] = 1;  // biBitCount (1-bit monochrome/indexed)
+  uint32_t imageSize = (uint32_t)row_bytes * height;
+  header[34] = (uint8_t)(imageSize);
+  header[35] = (uint8_t)(imageSize >> 8);
+  header[36] = (uint8_t)(imageSize >> 16);
+  header[37] = (uint8_t)(imageSize >> 24);
+  header[38] = 0x13; header[39] = 0x0B; // biXPelsPerMeter = 2835
+  header[42] = 0x13; header[43] = 0x0B; // biYPelsPerMeter = 2835
+  header[46] = 2;  // biClrUsed
+  header[50] = 2;  // biClrImportant
+
+  // Palette 0: Black (0, 0, 0, 0)
+  // Palette 1: Foreground (B, G, R, 0)
+  header[58] = fgB;
+  header[59] = fgG;
+  header[60] = fgR;
+  header[61] = 0;
+
+  AsyncWebServerResponse *response = request->beginResponse("image/bmp", fileSize,
+    [header, u8g2_buf, width, height, tile_width, row_bytes, fileSize](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      size_t written = 0;
+      while (written < maxLen && (index + written) < fileSize) {
+        size_t pos = index + written;
+        if (pos < 62) {
+          buffer[written] = header[pos];
+        } else {
+          size_t pixel_index = pos - 62;
+          size_t row = pixel_index / row_bytes;
+          size_t bx = pixel_index % row_bytes;
+          int y = (height - 1) - row;
+          uint8_t tile_y = y / 8;
+          uint8_t vy = y % 8;
+          uint8_t bit_mask = 1 << vy;
+          const uint8_t *tptr = u8g2_buf + (tile_y * tile_width * 8) + (bx * 8);
+          uint8_t bmp_byte = 0;
+          for (uint8_t sx = 0; sx < 8; sx++) {
+            if (tptr[sx] & bit_mask) {
+              bmp_byte |= (0x80 >> sx);
+            }
+          }
+          buffer[written] = bmp_byte;
+        }
+        written++;
+      }
+      return written;
+    }
+  );
+  response->addHeader("Content-Disposition", "inline; filename=\"screenshot.bmp\"");
+  response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  request->send(response);
+}
+
+// Dump screenshot to Serial console as hex stream
+void dumpSerialScreenshot() {
+#if defined(DISPLAY_CYD)
+  const uint16_t width = CYD_NATIVE_WIDTH;
+  const uint16_t height = CYD_NATIVE_HEIGHT;
+  const uint8_t tile_width = CYD_NATIVE_TILE_WIDTH;
+  uint8_t fgR = ((cyd_fg_color >> 11) & 0x1F) * 255 / 31;
+  uint8_t fgG = ((cyd_fg_color >> 5) & 0x3F) * 255 / 63;
+  uint8_t fgB = (cyd_fg_color & 0x1F) * 255 / 31;
+#else
+  const uint16_t width = 256;
+  const uint16_t height = 64;
+  const uint8_t tile_width = 32;
+  uint8_t fgR = 255;
+  uint8_t fgG = 176;
+  uint8_t fgB = 0;
+#endif
+
+  const uint16_t row_bytes = width / 8;
+  const uint32_t fileSize = 62 + (uint32_t)row_bytes * height;
+  const uint8_t *u8g2_buf = u8g2.getBufferPtr();
+
+  Serial.printf("\n--- SNAPSHOT START (%ux%u BMP, %u bytes) ---\n", width, height, fileSize);
+  if (wifiConnected) {
+    Serial.printf("Direct download: %s/screenshot.bmp\n", myUrl);
+  }
+
+  uint8_t header[62] = {0};
+  header[0] = 'B'; header[1] = 'M';
+  header[2] = (uint8_t)(fileSize); header[3] = (uint8_t)(fileSize >> 8);
+  header[4] = (uint8_t)(fileSize >> 16); header[5] = (uint8_t)(fileSize >> 24);
+  header[10] = 62;
+  header[14] = 40;
+  header[18] = (uint8_t)(width); header[19] = (uint8_t)(width >> 8);
+  header[22] = (uint8_t)(height); header[23] = (uint8_t)(height >> 8);
+  header[26] = 1; header[28] = 1;
+  uint32_t imageSize = (uint32_t)row_bytes * height;
+  header[34] = (uint8_t)(imageSize); header[35] = (uint8_t)(imageSize >> 8);
+  header[36] = (uint8_t)(imageSize >> 16); header[37] = (uint8_t)(imageSize >> 24);
+  header[38] = 0x13; header[39] = 0x0B;
+  header[42] = 0x13; header[43] = 0x0B;
+  header[46] = 2; header[50] = 2;
+  header[58] = fgB; header[59] = fgG; header[60] = fgR;
+
+  for (size_t i = 0; i < 62; i++) {
+    Serial.printf("%02x", header[i]);
+  }
+  for (int y = height - 1; y >= 0; y--) {
+    uint8_t tile_y = y / 8;
+    uint8_t vy = y % 8;
+    uint8_t bit_mask = 1 << vy;
+    for (uint8_t bx = 0; bx < tile_width; bx++) {
+      const uint8_t *tptr = u8g2_buf + (tile_y * tile_width * 8) + (bx * 8);
+      uint8_t bmp_byte = 0;
+      for (uint8_t sx = 0; sx < 8; sx++) {
+        if (tptr[sx] & bit_mask) bmp_byte |= (0x80 >> sx);
+      }
+      Serial.printf("%02x", bmp_byte);
+    }
+  }
+  Serial.println("\n--- SNAPSHOT END ---");
+}
+
 /*
  * Expose the file system via the Web GUI with some basic functions for directory browsing, file reading and deletion.
  */
@@ -2885,6 +3038,7 @@ void handleInfo(AsyncWebServerRequest *request) {
   if (weatherEnabled) {
     message+="Last weather result: " + getResultCodeText(lastWeatherUpdateResult) + "\nNext weather update: " + String(nextWeatherUpdate-millis()) + "ms";
   }
+  message+="\nScreenshot: " + String(myUrl) + "/screenshot.bmp";
   sendResponse(200,message,request);
 }
 
@@ -3776,6 +3930,8 @@ void setup(void) {
 #else
   server.on("/displayinfo", HTTP_GET, [](AsyncWebServerRequest *request){request->send(200,contentTypeJson,"{\"cyd\":false}");});
 #endif
+  server.on("/screenshot.bmp", HTTP_GET, [](AsyncWebServerRequest *request){handleScreenshot(request);});
+  server.on("/screenshot", HTTP_GET, [](AsyncWebServerRequest *request){handleScreenshot(request);});
   server.on("/ota", HTTP_GET, [](AsyncWebServerRequest *request){handleOtaUpdate(request);});
   server.on("/control", HTTP_GET, [](AsyncWebServerRequest *request){handleControl(request);});
   server.on("/success", HTTP_GET, [](AsyncWebServerRequest *request){request->send(200,contentTypeHtml,successPage);});
@@ -4188,6 +4344,14 @@ void loop(void) {
       softResetBoard(MODE_LOADCONFIG);
     }
     nextSchedulerCheck = millis() + 10000;  // ten seconds
+  }
+
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (cmd.equalsIgnoreCase("snap") || cmd.equalsIgnoreCase("screenshot")) {
+      dumpSerialScreenshot();
+    }
   }
 
 }

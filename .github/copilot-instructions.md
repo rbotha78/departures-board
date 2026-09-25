@@ -74,6 +74,14 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
   OLED-era `y - 1` baseline coordinates. Those earlier coordinates put the
   glyphs above CYD clip windows, leaving rows absent or partially cut off.
 
+## Screenshot capture
+
+- Endpoint `http://<ip>/screenshot.bmp` (and `/screenshot`) serves a 1-bit indexed
+  BMP generated on the fly directly from `u8g2.getBufferPtr()` with zero heap allocations.
+- Palette reflects the active target and color scheme (`cyd_fg_color` on CYD, amber on OLED).
+  File size: 9,662 bytes on CYD (320x240), 2,110 bytes on OLED (256x64).
+- Over USB Serial, entering `snap` or `screenshot` outputs the BMP as a hex stream.
+
 ## Builds and deployment
 
 When validating a CYD change, build **and upload** to the attached device:
@@ -98,6 +106,18 @@ python -m platformio run -e esp32dev
 
 `TFT_eSPI` may warn that `TOUCH_CS` is undefined. This is expected because
 TFT_eSPI touch support is not configured; it is not a build failure.
+
+### Post-upload screenshot verification
+
+After uploading firmware to the CYD hardware:
+1. Wait 30 seconds for the board to reboot, re-associate with Wi-Fi, and complete its initial board draw.
+2. Determine the device IP (e.g. from `arp -a` matching the device MAC or `/info`) and download the screenshot:
+   ```powershell
+   curl.exe -s http://<ip>/screenshot.bmp -o screenshots/verify.bmp
+   python -c "from PIL import Image; Image.open('screenshots/verify.bmp').save('screenshots/verify.png')"
+   ```
+3. Inspect `screenshots/verify.png` with the `view` tool.
+4. Visually compare the captured screenshot against the expected output for the requested changes (layout coordinates, row bounds, font metrics, ticker positions, clock placement) before concluding the task. Clean up temporary files in `screenshots/` after verification.
 
 ## Web assets
 
