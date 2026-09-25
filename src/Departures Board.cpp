@@ -2352,6 +2352,8 @@ void drawStationBoard() {
     }
     u8g2.setMaxClipWindow();
     timer=millis()+6000;
+  } else {
+    blankArea(msgMargin,msgLine,msgWidth,20);
   }
 #else
   setRailDetailFont();
