@@ -46,13 +46,14 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
   then platform and expected/departure status. Keep this layout CYD-only; the
   OLED primary service remains a single row.
 - Draw every non-empty `station.serviceMessage` immediately after the primary
-  service at `y=108`. The second CYD service uses `y=130` for its
-  time/destination and `y=152` for platform/status. Reserve `y=174–193` for
-  the single-line RSS/NRCC station-message ticker and `y=204` for the clock
-  clear area. Render the primary and second services together as one static
-  panel so redraws clear stale service pixels. The primary service message and
-  RSS/NRCC ticker are separate 20 px clipped scrolling bands; do not apply
-  per-row clipping to the static service rows.
+  service at `y=108`. The secondary CYD service rows (`y=130` for
+  time/destination and `y=152` for platform/status) cycle through upcoming
+  departures (2nd, 3rd, 4th...) every 15 seconds via `cydSecondaryServiceIndex`.
+  Reserve `y=174–193` for the single-line RSS/NRCC station-message ticker and
+  `y=204` for the clock clear area. Render the primary and second services
+  together as one static panel so redraws clear stale service pixels. The
+  primary service message and RSS/NRCC ticker are separate 20 px clipped
+  scrolling bands; do not apply per-row clipping to the static service rows.
 - During the first CYD board render, initialize and draw both ticker bands
   after building their queues and before `sendBuffer()`. Reset the detail font,
   text scale, and clip window before that first send.

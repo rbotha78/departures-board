@@ -577,6 +577,8 @@ static const uint8_t CYD_TILE_SERVICE_PANEL_Y = 8;     // y = 64..175 (14 tile r
 static const uint8_t CYD_TILE_SERVICE_PANEL_H = 14;
 static const uint8_t CYD_TILE_PRIMARY_MSG_Y = 13;     // y = 104..127 (3 tile rows)
 static const uint8_t CYD_TILE_PRIMARY_MSG_H = 3;
+static const uint8_t CYD_TILE_SECONDARY_SERVICE_Y = 16;// y = 128..175 (6 tile rows)
+static const uint8_t CYD_TILE_SECONDARY_SERVICE_H = 6;
 static const uint8_t CYD_TILE_BOTTOM_TICKER_Y = 21;   // y = 168..199 (4 tile rows)
 static const uint8_t CYD_TILE_BOTTOM_TICKER_H = 4;
 static const uint8_t CYD_TILE_CLOCK_Y = 25;           // y = 200..239 (5 tile rows)
@@ -587,6 +589,7 @@ static int primaryServiceMessageWidth = 0;
 static char cydPrimaryMessages[5+MAXBOARDMESSAGES][MAXCALLINGSIZE+12];
 static int cydPrimaryMessageCount = 0;
 static int cydPrimaryMessageIndex = 0;
+static int cydSecondaryServiceIndex = 1;
 static unsigned long primaryServiceMessageTimer = 0;
 #endif
 
@@ -2046,7 +2049,7 @@ void drawPrimaryServiceMessage() {
   u8g2.setMaxClipWindow();
 }
 
-void drawSecondServiceLine() {
+void drawSecondaryServiceLine(int serviceIndex) {
   const int serviceBaseline = railDetailBaseline(LINE2);
   const int infoBaseline = railDetailBaseline(LINE2 + CYD_SECOND_SERVICE_INFO_OFFSET);
   char clipDestination[MAXLOCATIONSIZE+5];
@@ -2058,12 +2061,29 @@ void drawSecondServiceLine() {
   setRailDetailFont();
   blankArea(0,LINE2,SCREEN_WIDTH,LINE3-LINE2);
 
-  if (station.numServices <= 1) return;
+  if (station.numServices <= 1 || serviceIndex <= 0 || serviceIndex >= station.numServices) return;
 
-  strcpy(ordinal,"2nd ");
-  int timeX = u8g2.drawStr(0,serviceBaseline,ordinal) + 6;
-  int destPos = timeX + u8g2.drawStr(timeX,serviceBaseline,station.service[1].sTime) + 6;
-  strcpy(clipDestination,station.service[1].destination);
+  switch (serviceIndex) {
+    case 1:
+      strcpy(ordinal,"2nd ");
+      break;
+    case 2:
+      strcpy(ordinal,"3rd ");
+      break;
+    default:
+      sprintf(ordinal,"%dth ",serviceIndex+1);
+      break;
+  }
+
+  int destPos;
+  if (hideOrdinals) {
+    destPos = u8g2.drawStr(0,serviceBaseline,station.service[serviceIndex].sTime) + 6;
+  } else {
+    int timeX = u8g2.drawStr(0,serviceBaseline,ordinal) + 6;
+    destPos = timeX + u8g2.drawStr(timeX,serviceBaseline,station.service[serviceIndex].sTime) + 6;
+  }
+  strcpy(clipDestination,station.service[serviceIndex].destination);
+  if (station.service[serviceIndex].serviceType == BUS) strcat(clipDestination," ~");
   int spaceAvailable = SCREEN_WIDTH - destPos - 6;
   if (getStringWidth(clipDestination) > spaceAvailable) {
     while (getStringWidth(clipDestination) > spaceAvailable - 5) {
@@ -2074,20 +2094,29 @@ void drawSecondServiceLine() {
   }
   u8g2.drawStr(destPos,serviceBaseline,clipDestination);
 
-  if (station.platformAvailable && !hidePlatform && station.service[1].platform[0] && station.service[1].serviceType == TRAIN) {
-    sprintf(plat,"Plat %.3s",station.service[1].platform);
+  if (station.platformAvailable && !hidePlatform && station.service[serviceIndex].platform[0] && station.service[serviceIndex].serviceType == TRAIN) {
+    sprintf(plat,"Plat %.3s",station.service[serviceIndex].platform);
     u8g2.drawStr(0,infoBaseline,plat);
   }
-  if (isDigit(station.service[1].etd[0])) sprintf(etd,"Exp %s",station.service[1].etd);
-  else strcpy(etd,station.service[1].etd);
+  if (isDigit(station.service[serviceIndex].etd[0])) sprintf(etd,"Exp %s",station.service[serviceIndex].etd);
+  else strcpy(etd,station.service[serviceIndex].etd);
   int etdWidth = getStringWidth(etd) + (etd[strlen(etd)-1]=='1'?1:0);
   u8g2.drawStr(CYD_DETAIL_STATUS_RIGHT - etdWidth,infoBaseline,etd);
+}
+
+inline void drawSecondServiceLine() {
+  drawSecondaryServiceLine(1);
 }
 
 void drawCydServicePanel(bool showVia) {
   blankArea(0,LINE1,SCREEN_WIDTH,LINE3-LINE1);
   drawPrimaryService(showVia);
-  if (station.numServices > 1) drawSecondServiceLine();
+  if (station.numServices > 1) {
+    if (cydSecondaryServiceIndex <= 0 || cydSecondaryServiceIndex >= station.numServices) {
+      cydSecondaryServiceIndex = 1;
+    }
+    drawSecondaryServiceLine(cydSecondaryServiceIndex);
+  }
 }
 #endif
 
@@ -2180,6 +2209,8 @@ void drawStationBoard() {
   cydPrimaryMessageCount=0;
   cydPrimaryMessageIndex=0;
   displayedPrimaryServiceMessage[0]='\0';
+  cydSecondaryServiceIndex=1;
+  serviceTimer = millis() + 15000;
 #endif
   if (firstLoad) {
     // Clear the entire screen for the first load since boot up/wake from sleep
@@ -3346,7 +3377,22 @@ void departureBoardLoop() {
 
   if (millis()>serviceTimer && !isScrollingService && !isSleeping && !noServiceClockIsActive && !noDataLoaded && lastUpdateResult!=UPD_UNAUTHORISED && lastUpdateResult!=UPD_DATA_ERROR) {
 #if defined(DISPLAY_CYD)
-    serviceTimer = millis() + 30000;
+    if (station.numServices > 2) {
+      cydSecondaryServiceIndex++;
+      if (cydSecondaryServiceIndex >= station.numServices) {
+        cydSecondaryServiceIndex = 1;
+      }
+      drawSecondaryServiceLine(cydSecondaryServiceIndex);
+      u8g2.updateDisplayArea(0, CYD_TILE_SECONDARY_SERVICE_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_SECONDARY_SERVICE_H);
+      serviceTimer = millis() + 15000;
+    } else {
+      if (cydSecondaryServiceIndex != 1 && station.numServices == 2) {
+        cydSecondaryServiceIndex = 1;
+        drawSecondaryServiceLine(1);
+        u8g2.updateDisplayArea(0, CYD_TILE_SECONDARY_SERVICE_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_SECONDARY_SERVICE_H);
+      }
+      serviceTimer = millis() + 30000;
+    }
 #else
     // Need to change to the next service if there is one
     if ((station.numServices <= 1 || (station.numServices==2 && noScrolling)) && !weatherMsg[0]) {
