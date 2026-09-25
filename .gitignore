@@ -2,4 +2,5 @@
 .cache
 .dummy
 .vscode/*
+screenshots/*
 compile_commands.json
