@@ -36,6 +36,9 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
 - The departure clock belongs at the bottom, with a 10 px bottom margin. Use
   explicit top positioning (`setFontPosTop()`) for the CYD clock; font descent
   arithmetic clipped the clock on hardware.
+- On CYD, the background data-update icon (`"}"` / `→`) and Wi-Fi disconnect icon
+  (`"\x7F"`) are positioned at the bottom left (`x=10, y=224`), vertically aligned
+  with the clock digits and cleared via tile band `y=200..239` (`ty=25, th=5`).
 - The clock width is anchored against `"88:88:88"` to prevent horizontal
   movement as its digits change.
 - CYD National Rail service and feed rows use the fixed-width, bold

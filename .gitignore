@@ -3,4 +3,5 @@
 .dummy
 .vscode/*
 screenshots/*
+cache/*
 compile_commands.json

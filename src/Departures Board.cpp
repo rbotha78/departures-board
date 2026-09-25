@@ -1026,17 +1026,32 @@ void showUpdateIcon(bool show) {
       u8g2.setFont(NatRailSmall9);
       u8g2.drawStr(0,-2,"\x81");
     } else {
+#if defined(DISPLAY_CYD)
+      u8g2.setFont(NatRailTall12);
+      u8g2.drawStr(10,224,"}");
+      if (boardMode == MODE_TUBE) u8g2.setFont(Underground10);
+      else setRailDetailFont();
+#else
       u8g2.setFont(NatRailTall12);
       u8g2.drawStr(0,50,"}");
       if (boardMode == MODE_TUBE) u8g2.setFont(Underground10);
       else u8g2.setFont(NatRailSmall9);
+#endif
     }
     updateIconVisible = true;
   } else {
+#if defined(DISPLAY_CYD)
+    if (noServiceClockIsActive) blankArea(0,0,6,6); else blankArea(10,LINE4,16,SCREEN_HEIGHT-LINE4);
+#else
     if (noServiceClockIsActive) blankArea(0,0,6,6); else blankArea(0,50,6,13);
+#endif
     updateIconVisible = false;
   }
+#if defined(DISPLAY_CYD)
+  if (noServiceClockIsActive) u8g2.updateDisplayArea(0,0,1,1); else u8g2.updateDisplayArea(0,CYD_TILE_CLOCK_Y,4,CYD_TILE_CLOCK_H);
+#else
   if (noServiceClockIsActive) u8g2.updateDisplayArea(0,0,1,1); else u8g2.updateDisplayArea(0,6,1,2);
+#endif
 }
 
 /*
@@ -4315,13 +4330,25 @@ void loop(void) {
   // WiFi Status icon
   if (WiFi.status() != WL_CONNECTED && wifiConnected) {
     wifiConnected=false;
+#if defined(DISPLAY_CYD)
+    u8g2.setFont(NatRailTall12);
+    u8g2.drawStr(10,224,"\x7F");  // No Wifi Icon
+    setRailDetailFont();
+    u8g2.updateDisplayArea(0,CYD_TILE_CLOCK_Y,4,CYD_TILE_CLOCK_H);
+#else
     u8g2.setFont(NatRailSmall9);
     u8g2.drawStr(0,56,"\x7F");  // No Wifi Icon
     u8g2.updateDisplayArea(0,7,1,1);
+#endif
   } else if (WiFi.status() == WL_CONNECTED && !wifiConnected) {
     wifiConnected=true;
+#if defined(DISPLAY_CYD)
+    blankArea(10,LINE4,16,SCREEN_HEIGHT-LINE4);
+    u8g2.updateDisplayArea(0,CYD_TILE_CLOCK_Y,4,CYD_TILE_CLOCK_H);
+#else
     blankArea(0,57,5,7);
     u8g2.updateDisplayArea(0,7,1,1);
+#endif
     updateMyUrl();  // in case our IP changed
   }
 
