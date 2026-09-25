@@ -476,7 +476,11 @@ static int nrTimeOffset = 0;               // Offset minutes for Rail departures
 static int prevUpdateCheckDay;             // Day of the month the last daily firmware update check was made
 static unsigned long fwUpdateCheckTimer=0; // Next time to check if the day has rolled over for firmware update check
 static bool apiKeys = false;               // Does apikeys.json exist?
-static bool touchEnabled = true;           // Onboard XPT2046 Touch Screen & BOOT Button
+#if defined(DISPLAY_CYD)
+static bool touchEnabled = true;            // Onboard BOOT button
+#else
+static bool touchEnabled = false;           // Optional TTP223 touch sensor installed?
+#endif
 static bool useRDMclient = false;          // Use the new Rail Data Marketplace API instead of Darwin Lite
 static bool enableScheduler = false;
 static bool enableCarousel = false;
