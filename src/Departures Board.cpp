@@ -155,10 +155,10 @@ U8G2_SSD1322_NHD_256X64_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ GPIO_NUM_26, /* dc=*/
 #if defined(DISPLAY_CYD)
 // Vertical line positions on the native CYD display (National Rail)
 #define LINE0 0
-#define LINE1 88
-#define LINE2 120
-#define LINE3 152
-#define LINE4 184
+#define LINE1 64
+#define LINE2 92
+#define LINE3 120
+#define LINE4 168
 
 // Vertical line positions on the native CYD display (Underground)
 #define ULINE0 0
@@ -381,7 +381,7 @@ static const uint8_t *bodyFont() {
 
 static void setRailDetailFont() {
 #if defined(DISPLAY_CYD)
-  u8g2.setFont(NatRailTall12);
+  u8g2.setFont(u8g2_font_7x14B_tf);
 #else
   u8g2.setFont(NatRailSmall9);
 #endif
@@ -1904,18 +1904,19 @@ void drawPrimaryService(bool showVia) {
 #else
   u8g2.setFont(NatRailTall12);
 #endif
+  const int primaryBaseline = railDetailBaseline(LINE1);
   blankArea(0,LINE1,256,LINE2-LINE1);
-  destPos = u8g2.drawStr(0,LINE1-1,station.service[0].sTime) + 6;
+  destPos = u8g2.drawStr(0,primaryBaseline,station.service[0].sTime) + 6;
   if (isDigit(station.service[0].etd[0])) sprintf(etd,"Exp %s",station.service[0].etd);
   else strcpy(etd,station.service[0].etd);
   int etdWidth = getStringWidth(etd) + (etd[strlen(etd)-1]=='1'?1:0);
-  u8g2.drawStr(SCREEN_WIDTH - etdWidth,LINE1-1,etd);
+  u8g2.drawStr(SCREEN_WIDTH - etdWidth,primaryBaseline,etd);
   int spaceAvailable = SCREEN_WIDTH - destPos - etdWidth - 6;
 
   if (station.platformAvailable && station.service[0].platform[0] && station.service[0].serviceType == TRAIN && !hidePlatform) {
     sprintf(plat,"Plat %.3s",station.service[0].platform);
     int platWidth = getStringWidth(plat) + (plat[strlen(plat)-1]=='1'?1:0);;
-    u8g2.drawStr(SCREEN_WIDTH - etdWidth - platWidth - 7,LINE1-1,plat);
+    u8g2.drawStr(SCREEN_WIDTH - etdWidth - platWidth - 7,primaryBaseline,plat);
     spaceAvailable-=(platWidth+7);
   }
 
@@ -1932,7 +1933,7 @@ void drawPrimaryService(bool showVia) {
     if (clipDestination[strlen(clipDestination)-1] == ' ') clipDestination[strlen(clipDestination)-1] = '\0';
     strcat(clipDestination,"...");
   }
-  u8g2.drawStr(destPos,LINE1-1,clipDestination);
+  u8g2.drawStr(destPos,primaryBaseline,clipDestination);
   // Restore the font used for rail detail text.
   setRailDetailFont();
 #if defined(DISPLAY_CYD)

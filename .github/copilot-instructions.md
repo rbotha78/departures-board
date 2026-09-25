@@ -26,10 +26,11 @@ not map to the CYD canvas.
   arithmetic clipped the clock on hardware.
 - The clock width is anchored against `"88:88:88"` to prevent horizontal
   movement as its digits change.
-- CYD National Rail service and feed rows use the original `NatRailTall12`
-  bitmap font at 1x scale. The `ArimoRegular11` font and its license are
-  retained for comparison and must not be removed unless explicitly requested.
-- The 12 px detail glyphs must render with their baseline inside their row
+- CYD National Rail service and feed rows use the fixed-width, bold
+  `u8g2_font_7x14B_tf` font at 1x scale. The `ArimoRegular11` font and its
+  license are retained for comparison and must not be removed unless explicitly
+  requested.
+- The 14 px detail glyphs must render with their baseline inside their row
   clipping rectangle. Use `railDetailBaseline()` and
   `railDetailScrollBaseline()` for National Rail service/feed rows rather than
   OLED-era `y - 1` baseline coordinates. Those earlier coordinates put the
