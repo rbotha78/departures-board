@@ -2008,7 +2008,7 @@
       const scale = parseInt(elements.displayScale.value);
       appState.jsonSettings.displayColor = color;
       appState.jsonSettings.displayScale = scale;
-      fetch(`/display?color=${color}&scale=${scale}&font=${font}`);
+      fetch(`/display?color=${color}&scale=${scale}`);
     }
 
     async function handleSave() {
