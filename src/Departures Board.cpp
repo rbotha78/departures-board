@@ -572,7 +572,7 @@ static bool showingMessage = false;
 #if defined(DISPLAY_CYD)
 static const int CYD_SECOND_SERVICE_INFO_OFFSET = 22;
 static const int CYD_DETAIL_STATUS_RIGHT = SCREEN_WIDTH - 12;
-static char displayedPrimaryServiceMessage[MAXMESSAGESIZE];
+static char displayedPrimaryServiceMessage[MAXCALLINGSIZE+12];
 static int primaryServiceMessageScrollX = 0;
 static int primaryServiceMessageWidth = 0;
 static char cydPrimaryMessages[5+MAXBOARDMESSAGES][MAXCALLINGSIZE+12];
