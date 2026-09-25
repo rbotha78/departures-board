@@ -59,6 +59,13 @@ not map to the CYD canvas.
   primary message row. Reserve the bottom ticker for RSS and weather only.
 - Right-align CYD live-status text to the fixed right-column boundary at
   `SCREEN_WIDTH - 12` so its final glyph is not clipped by the physical edge.
+- The default CYD palette/color scheme is Amber (`CYD_COLOR_AMBER`, `0xFD80` / `255, 176, 0`).
+- Hardware input defaults in `writeDefaultConfig()` are scoped by display target:
+  - CYD: `brightness = 200`, `touch = true` (uses onboard BOOT button on GPIO 0).
+  - OLED: `brightness = 20`, `touch = false` (optional TTP223 sensor).
+- `displayedPrimaryServiceMessage` must remain sized to `MAXCALLINGSIZE + 12`
+  (matching `cydPrimaryMessages` slot size) so that full calling-point strings
+  can scroll without truncation.
 - The 14 px detail glyphs must render with their baseline inside their row
   clipping rectangle. Use `railDetailBaseline()` and
   `railDetailScrollBaseline()` for National Rail service/feed rows rather than
