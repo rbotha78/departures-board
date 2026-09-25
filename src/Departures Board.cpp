@@ -572,6 +572,14 @@ static bool showingMessage = false;
 #if defined(DISPLAY_CYD)
 static const int CYD_SECOND_SERVICE_INFO_OFFSET = 22;
 static const int CYD_DETAIL_STATUS_RIGHT = SCREEN_WIDTH - 12;
+static const uint8_t CYD_TILE_SERVICE_PANEL_Y = 8;     // y = 64..175 (14 tile rows)
+static const uint8_t CYD_TILE_SERVICE_PANEL_H = 14;
+static const uint8_t CYD_TILE_PRIMARY_MSG_Y = 13;     // y = 104..127 (3 tile rows)
+static const uint8_t CYD_TILE_PRIMARY_MSG_H = 3;
+static const uint8_t CYD_TILE_BOTTOM_TICKER_Y = 21;   // y = 168..199 (4 tile rows)
+static const uint8_t CYD_TILE_BOTTOM_TICKER_H = 4;
+static const uint8_t CYD_TILE_CLOCK_Y = 25;           // y = 200..239 (5 tile rows)
+static const uint8_t CYD_TILE_CLOCK_H = 5;
 static char displayedPrimaryServiceMessage[MAXCALLINGSIZE+12];
 static int primaryServiceMessageScrollX = 0;
 static int primaryServiceMessageWidth = 0;
@@ -963,6 +971,7 @@ void drawCurrentTime() {
       u8g2.drawStrUnscaled(clockX,clockTop,currentTime);
       u8g2.setFontPosBaseline();
       u8g2.setFont(NatRailSmall9);
+      u8g2.updateDisplayArea(0, CYD_TILE_CLOCK_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_CLOCK_H);
 #else
       u8g2.setFont(NatRailClockLarge9);
       blankArea(96,LINE4,64,SCREEN_HEIGHT-LINE4);
@@ -972,8 +981,8 @@ void drawCurrentTime() {
       strcpy(timeSeg,currentTime+6);
       u8g2.drawStr(144,LINE4+1,timeSeg);
       u8g2.setFont(NatRailSmall9);
-#endif
       u8g2.updateDisplayArea(12,6,8,2);
+#endif
       strcpy(displayedTime,currentTime);
       if (dateEnabled && timeinfo.tm_mday!=dateDay) {
         // Need to update the date on screen
@@ -2351,7 +2360,7 @@ void drawStationBoard() {
     currentMessage=0;
     scrollStopsXpos=msgMargin;
     scrollStopsLength=getStringWidth(line2[currentMessage]);
-    blankArea(msgMargin,msgLine,msgWidth,9);
+    blankArea(msgMargin,msgLine,msgWidth,20);
     u8g2.setClipWindow(msgMargin,msgLine,SCREEN_WIDTH,msgLine+20);
     if (scrollStopsLength < msgWidth) {
       centreText(line2[currentMessage],railDetailBaseline(msgLine),msgMargin,msgWidth);
@@ -3096,10 +3105,11 @@ void departureBoardLoop() {
       if (!station.service[0].via[0]) isShowingVia=false;
 #if defined(DISPLAY_CYD)
       drawCydServicePanel(isShowingVia);
+      u8g2.updateDisplayArea(0, CYD_TILE_SERVICE_PANEL_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_SERVICE_PANEL_H);
 #else
       drawPrimaryService(isShowingVia);
-#endif
       u8g2.updateDisplayArea(0,1,32,3);
+#endif
       if (station.calling[0] && showFullCalling) {
         for (int i=0;i<numMessages;i++) {
           if (strncmp("Calling",line2[i],7)==0) {
@@ -3167,10 +3177,11 @@ void departureBoardLoop() {
       isShowingVia = !isShowingVia;
 #if defined(DISPLAY_CYD)
       drawCydServicePanel(isShowingVia);
+      u8g2.updateDisplayArea(0, CYD_TILE_SERVICE_PANEL_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_SERVICE_PANEL_H);
 #else
       drawPrimaryService(isShowingVia);
-#endif
       u8g2.updateDisplayArea(0,1,32,3);
+#endif
       if (isShowingVia) viaTimer = millis()+3000; else viaTimer = millis()+4000;
     }
   }
@@ -3205,7 +3216,7 @@ void departureBoardLoop() {
 
   if (isScrollingStops && millis()>timer && !isSleeping && !noScrolling) {
 #if defined(DISPLAY_CYD)
-    blankArea(msgMargin,msgLine,msgWidth,9);
+    blankArea(msgMargin,msgLine,msgWidth,20);
     u8g2.setClipWindow(msgMargin,msgLine,SCREEN_WIDTH,msgLine+20);
     if (scrollStopsLength < msgWidth) {
       centreText(line2[currentMessage],railDetailBaseline(msgLine),msgMargin,msgWidth);
@@ -3279,7 +3290,20 @@ void departureBoardLoop() {
     // so we need to wait any additional ms not used by processing so far before sending the frame to the display controller
     delayMs = frameTimeRail - (millis()-refreshTimer);
     if (delayMs>0) delay(delayMs);
+#if defined(DISPLAY_CYD)
+    if (!noServiceClockIsActive) {
+      if (cydPrimaryMessageCount > 0) {
+        u8g2.updateDisplayArea(0, CYD_TILE_PRIMARY_MSG_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_PRIMARY_MSG_H);
+      }
+      if (isScrollingStops) {
+        u8g2.updateDisplayArea(0, CYD_TILE_BOTTOM_TICKER_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_BOTTOM_TICKER_H);
+      }
+    } else {
+      u8g2.updateDisplayArea(0, CYD_TILE_CLOCK_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_CLOCK_H);
+    }
+#else
     if (!noServiceClockIsActive) u8g2.updateDisplayArea(0,3,32,4); else u8g2.updateDisplayArea(0,6,32,2);
+#endif
     refreshTimer=millis();
   }
 #if defined(DISPLAY_CYD)

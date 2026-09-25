@@ -22,9 +22,11 @@ logic with `DISPLAY_CYD`; do not alter the shared display code unless the change
 is required for both targets.
 
 The CYD renderer is implemented by `U8G2_CYD_TFT` in `include/cydDisplay.h`.
-It uses a full 320x240 U8g2 framebuffer (40x30 tiles). Legacy OLED partial
-updates intentionally send the full CYD buffer because OLED tile geometry does
-not map to the CYD canvas.
+It uses a full 320x240 U8g2 framebuffer (40x30 tiles). It supports targeted
+partial tile updates (`updateDisplayArea`) for CYD tile bands (primary message
+`y=104..127`, bottom ticker `y=168..199`, clock `y=200..239`, service panel
+`y=64..175`), while automatically falling back to full `sendBuffer()` when called
+with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
 
 ## CYD layout and fonts
 

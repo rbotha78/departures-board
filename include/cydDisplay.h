@@ -244,8 +244,12 @@ public:
     clearBuffer();
   }
 
-  void updateDisplayArea(uint8_t, uint8_t, uint8_t, uint8_t) {
-    sendBuffer();
+  void updateDisplayArea(uint8_t tx, uint8_t ty, uint8_t tw, uint8_t th) {
+    if (tw <= 32 && (ty + th) <= 8) {
+      sendBuffer();
+    } else {
+      U8G2::updateDisplayArea(tx, ty, tw, th);
+    }
   }
 
 private:
