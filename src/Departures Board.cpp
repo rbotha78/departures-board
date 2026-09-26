@@ -740,10 +740,19 @@ void drawFirmware() {
 }
 
 void drawStartupHeading() {
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(1);
+  u8g2.setFontPosTop();
+  u8g2.setFont(NatRailTall12);
+  centreText("Departures Board",20);
+  u8g2.setFont(bodyFont());
+  drawFirmware();
+#else
   u8g2.setFont(NatRailTall12);
   centreText("Departures Board",0);
   u8g2.setFont(bodyFont());
   drawFirmware();
+#endif
 }
 
 void drawStationHeader(const char *stopName, const char *callingStopName, const char *platFilter, const int timeOffset) {
@@ -1244,6 +1253,17 @@ void showUpdateCompleteScreen(const char *title, const char *msg1, const char *m
 
 void showSwitchScreen() {
   u8g2.clearBuffer();
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(1);
+  u8g2.setFontPosTop();
+  u8g2.setFont(NatRailTall12);
+
+  if (carouselActive) centreText("Moving to next carousel slot",80);
+  else if (schedulerActive) centreText("Moving to next scheduler slot",80);
+  else centreText("Switching modes",80);
+  u8g2.setFont(bodyFont());
+  centreText("Waiting for background process to complete...",115);
+#else
   u8g2.setFont(NatRailTall12);
 
   if (carouselActive) centreText("Moving to next carousel slot",20);
@@ -1251,6 +1271,7 @@ void showSwitchScreen() {
   else centreText("Switching modes",20);
   u8g2.setFont(bodyFont());
   centreText("Waiting for background process to complete...",42);
+#endif
   u8g2.sendBuffer();
 }
 
@@ -1748,8 +1769,16 @@ void softResetBoard(boardModes requestedMode) {
   }
   tzset();
   u8g2.clearBuffer();
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(1);
+  u8g2.setFontPosTop();
+#endif
   drawStartupHeading();
+#if defined(DISPLAY_CYD)
+  if (requestedMode==MODE_NEXTMODE) centreText("Switching modes...",110);
+#else
   if (requestedMode==MODE_NEXTMODE) centreText("Switching modes...",53);
+#endif
   u8g2.updateDisplay();
 
   // Force an update asap
@@ -3917,8 +3946,18 @@ void setup(void) {
   u8g2.setContrast(brightness);               // Set the user-saved display brightness
   if (flipScreen) u8g2.setFlipMode(1);
   u8g2.clearBuffer();
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(1);
+  u8g2.setFontPosTop();
+  const int logoX = (SCREEN_WIDTH - gadeclogo_width) / 2;
+  const int logoY = 80;
+  u8g2.drawXBM(logoX,logoY,gadeclogo_width,gadeclogo_height,gadeclogo_bits);
+  u8g2.setFont(bodyFont());
+  centreText(notice.c_str(),logoY + gadeclogo_height + 16);
+#else
   u8g2.drawXBM(81,0,gadeclogo_width,gadeclogo_height,gadeclogo_bits);
   centreText(notice.c_str(),48);
+#endif
   u8g2.sendBuffer();
   delay(5000);
 
@@ -3962,8 +4001,13 @@ void setup(void) {
   drawStartupHeading();                                           // Draw the startup heading
   char ipBuff[17];
   WiFi.localIP().toString().toCharArray(ipBuff,sizeof(ipBuff));   // Get the IP address of the ESP32
+#if defined(DISPLAY_CYD)
+  progressBar("Wi-Fi Connected",30);
+  centreText(ipBuff,110);                                         // Display the IP address below progress bar
+#else
   centreText(ipBuff,53);                                          // Display the IP address
   progressBar("Wi-Fi Connected",30);
+#endif
   u8g2.sendBuffer();                                              // Send to CYD panel
 
   // Configure the local webserver paths
