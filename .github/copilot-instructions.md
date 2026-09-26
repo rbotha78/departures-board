@@ -45,7 +45,7 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
   50 px hours/minutes and 36 px bottom-aligned seconds centered horizontally
   (`x = 10..310`, 10 px margins) and vertically (`top = 95`, 95 px margins).
   Second-by-second updates clear `y = 93..147` via tile band `y = 88..151` (`ty = 11, th = 8`).
-- CYD National Rail service and feed rows use the fixed-width, bold
+- CYD National Rail and Bus service and feed rows use the fixed-width, bold
   `u8g2_font_7x14B_tf` font at 1x scale.
 - The primary CYD service uses two rows: scheduled time and destination first,
   then platform and expected/departure status. Keep this layout CYD-only; the
@@ -60,17 +60,17 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
   primary service message and RSS/NRCC ticker are separate 20 px clipped
   scrolling bands; do not apply per-row clipping to the static service rows.
 - During the first CYD board render, ensure `u8g2.setFontPosBaseline()` is
-  explicitly set at the start of `drawStationBoard()` and `departureBoardLoop()`,
-  because `setup()` leaves U8g2 in top-positioning mode (`setFontPosTop()`).
-  Without this, the first frame renders all baseline coordinates as top
-  coordinates, cutting off rows. Also initialize and draw both ticker bands
+  explicitly set at the start of `drawStationBoard()`, `drawBusDeparturesBoard()`,
+  and `departureBoardLoop()`, because `setup()` leaves U8g2 in top-positioning mode
+  (`setFontPosTop()`). Without this, the first frame renders all baseline coordinates
+  as top coordinates, cutting off rows. Also initialize and draw both ticker bands
   and call `drawCurrentTime()` before the first `sendBuffer()`. Reset the detail font,
   text scale, and clip window before that first send.
 - On CYD, route primary-service context (service message, calling points,
   origin/operator, seating, coach count) and station/NRCC notices to the
-  primary message row. Reserve the bottom ticker for RSS and weather only.
+  primary message row. Reserve the bottom ticker for RSS, attribution, and weather only.
 - Right-align CYD live-status text to the fixed right-column boundary at
-  `SCREEN_WIDTH - 12` so its final glyph is not clipped by the physical edge.
+  `SCREEN_WIDTH - 12` (`CYD_DETAIL_STATUS_RIGHT`) so its final glyph is not clipped by the physical edge.
 - The default CYD palette/color scheme is Amber (`CYD_COLOR_AMBER`, `0xFD80` / `255, 176, 0`).
 - Hardware input defaults in `writeDefaultConfig()` are scoped by display target:
   - CYD: `brightness = 200`, `touch = true` (supports onboard XPT2046 touchscreen on VSPI: CLK 25, MISO 39, MOSI 32, CS 33, IRQ 36 and active-LOW BOOT button on GPIO 0).
@@ -80,9 +80,34 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
   can scroll without truncation.
 - The 14 px detail glyphs must render with their baseline inside their row
   clipping rectangle. Use `railDetailBaseline()` and
-  `railDetailScrollBaseline()` for National Rail service/feed rows rather than
+  `railDetailScrollBaseline()` for National Rail and Bus service/feed rows rather than
   OLED-era `y - 1` baseline coordinates. Those earlier coordinates put the
   glyphs above CYD clip windows, leaving rows absent or partially cut off.
+
+## CYD Bus Departures Board layout
+
+- Header: Top station/stop header (`y = 0..63`) using `drawStationHeader(locationName, "", locationFilter, 0)`, clearing full width `SCREEN_WIDTH` (`y = 0..LINE1-1`).
+- Departure rows: Up to 3 cleanly spaced service rows using `u8g2_font_7x14B_tf`:
+  - Row 0: `y = 68`
+  - Row 1: `y = 102`
+  - Row 2: `y = 136` (rotates through 3rd, 4th, 5th... services every 10 seconds via `cydSecondaryServiceIndex` when `station.numServices > 3`).
+- Route number: Drawn at `x = 0`. Destination begins at `busDestX` (calculated from widest route number in `7x14B` + padding).
+- Live departure status (`Exp HH:MM` or scheduled time): Right-aligned to `CYD_DETAIL_STATUS_RIGHT` (`SCREEN_WIDTH - 12`).
+- Bottom ticker: `y = 174..193` in tile band `y = 168..199` for `"Powered by bustimes.org"` attribution and weather messages.
+- Clock: Use `drawCurrentTime()` (large centered `u8g2_font_logisoso20_tn` in tile band `y = 200..239`), NOT `drawCurrentTimeUG()`.
+- Partial tile updates: `busDeparturesLoop()` updates only `CYD_TILE_SERVICE_PANEL_Y` (`y = 64..175`) on `UPD_NO_CHANGE`, tile band `0, 16, 40, 6` on 3rd service rotation, and `CYD_TILE_BOTTOM_TICKER_Y` (`y = 168..199`) during ticker scrolls.
+
+## CYD Startup and Switch screens
+
+- Startup splash screen:
+  - Center logo horizontally: `logoX = (SCREEN_WIDTH - gadeclogo_width) / 2` (`113` on 320 px CYD).
+  - Center logo vertically: `logoY = 80` (spans `y = 80..120`).
+  - Use `bodyFont()` (`NatRailSmall9`) for the copyright notice below the logo at `logoY + gadeclogo_height + 16 = 136` to prevent text truncation.
+  - Position Wi-Fi IP address below progress bar at `y = 110`.
+- Mode switch and soft reset screens:
+  - `departureBoardLoop()` leaves `u8g2.setTextScale(2)` active. Always explicitly reset `u8g2.setTextScale(1)` and set `u8g2.setFontPosTop()` in `showSwitchScreen()` and `softResetBoard()`.
+  - In `showSwitchScreen()`, place mode title at `y = 80` and waiting message at `y = 115` to prevent text overlap.
+  - In `softResetBoard()`, place `"Switching modes..."` at `y = 110` on CYD to avoid colliding with `progressBar()` at `y = 52`.
 
 ## Screenshot capture
 
@@ -94,23 +119,48 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
 
 ## Builds and deployment
 
+### Windows Console Encoding (UTF-8)
+
+`esptool` upload output outputs unicode block characters for its progress bars (e.g. `[████░░░░]`).
+On Windows, standard PowerShell defaults to code page 1252, causing Python `click` to crash with:
+`UnicodeEncodeError: 'charmap' codec can't encode characters in position ...: character maps to <undefined>`.
+Always configure UTF-8 encoding in PowerShell before running `platformio run`:
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001
+```
+
+### PlatformIO Core Directory
+
+The shared PlatformIO core can be incompatible with the installed Python
+version. Always use the **full absolute path** for the session-local PlatformIO core
+(avoid relative `..\` path chains which can resolve outside the user directory):
+
+```powershell
+$env:PLATFORMIO_CORE_DIR = 'C:\Users\rober\.copilot\session-state\<session-id>\files\platformio-core'
+```
+
+### Building and Uploading
+
 When validating a CYD change, build **and upload** to the attached device:
 
 ```powershell
-python -m platformio run -e cyd -t upload
-```
-
-The shared PlatformIO core can be incompatible with the installed Python
-version. When needed, use the session-local PlatformIO core:
-
-```powershell
-$env:PLATFORMIO_CORE_DIR = '<session-state>\\files\\platformio-core'
+$env:PYTHONIOENCODING = "utf-8"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001
+$env:PLATFORMIO_CORE_DIR = 'C:\Users\rober\.copilot\session-state\<session-id>\files\platformio-core'
 python -m platformio run -e cyd -t upload
 ```
 
 Also build the OLED environment for changes that touch shared firmware paths:
 
 ```powershell
+$env:PYTHONIOENCODING = "utf-8"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001
+$env:PLATFORMIO_CORE_DIR = 'C:\Users\rober\.copilot\session-state\<session-id>\files\platformio-core'
 python -m platformio run -e esp32dev
 ```
 
