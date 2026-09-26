@@ -57,8 +57,12 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
   together as one static panel so redraws clear stale service pixels. The
   primary service message and RSS/NRCC ticker are separate 20 px clipped
   scrolling bands; do not apply per-row clipping to the static service rows.
-- During the first CYD board render, initialize and draw both ticker bands
-  after building their queues and before `sendBuffer()`. Reset the detail font,
+- During the first CYD board render, ensure `u8g2.setFontPosBaseline()` is
+  explicitly set at the start of `drawStationBoard()` and `departureBoardLoop()`,
+  because `setup()` leaves U8g2 in top-positioning mode (`setFontPosTop()`).
+  Without this, the first frame renders all baseline coordinates as top
+  coordinates, cutting off rows. Also initialize and draw both ticker bands
+  and call `drawCurrentTime()` before the first `sendBuffer()`. Reset the detail font,
   text scale, and clip window before that first send.
 - On CYD, route primary-service context (service message, calling points,
   origin/operator, seating, coach count) and station/NRCC notices to the
@@ -67,8 +71,8 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
   `SCREEN_WIDTH - 12` so its final glyph is not clipped by the physical edge.
 - The default CYD palette/color scheme is Amber (`CYD_COLOR_AMBER`, `0xFD80` / `255, 176, 0`).
 - Hardware input defaults in `writeDefaultConfig()` are scoped by display target:
-  - CYD: `brightness = 200`, `touch = true` (uses onboard BOOT button on GPIO 0).
-  - OLED: `brightness = 20`, `touch = false` (optional TTP223 sensor).
+  - CYD: `brightness = 200`, `touch = true` (supports onboard XPT2046 touchscreen on VSPI: CLK 25, MISO 39, MOSI 32, CS 33, IRQ 36 and active-LOW BOOT button on GPIO 0).
+  - OLED: `brightness = 20`, `touch = false` (optional active-HIGH TTP223 sensor on GPIO 34).
 - `displayedPrimaryServiceMessage` must remain sized to `MAXCALLINGSIZE + 12`
   (matching `cydPrimaryMessages` slot size) so that full calling-point strings
   can scroll without truncation.

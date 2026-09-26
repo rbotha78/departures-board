@@ -974,7 +974,7 @@ void drawCurrentTime() {
       u8g2.setFontPosTop();
       u8g2.drawStrUnscaled(clockX,clockTop,currentTime);
       u8g2.setFontPosBaseline();
-      u8g2.setFont(NatRailSmall9);
+      setRailDetailFont();
       u8g2.updateDisplayArea(0, CYD_TILE_CLOCK_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_CLOCK_H);
 #else
       u8g2.setFont(NatRailClockLarge9);
@@ -2212,6 +2212,9 @@ void drawServiceLine(int line, int y) {
 
 // Draw the initial Departures Board
 void drawStationBoard() {
+#if defined(DISPLAY_CYD)
+  u8g2.setFontPosBaseline();
+#endif
   if (showClockNoServices && station.numServices == 0) {
     if (!noServiceClockIsActive) firstLoad = true;
     noServiceClockIsActive = true;
@@ -2419,6 +2422,10 @@ void drawStationBoard() {
   } else {
     blankArea(msgMargin,msgLine,msgWidth,20);
   }
+  displayedTime[0] = '\0';
+  drawCurrentTime();
+  setRailDetailFont();
+  u8g2.setFontPosBaseline();
 #else
   setRailDetailFont();
 #endif
@@ -3280,6 +3287,7 @@ void handleStationPicker(AsyncWebServerRequest *request)
 //
 void departureBoardLoop() {
 #if defined(DISPLAY_CYD)
+  u8g2.setFontPosBaseline();
   u8g2.setTextScale(1);
   setRailDetailFont();
 #endif
@@ -3903,6 +3911,9 @@ void setup(void) {
   strlcpy(wsdlHost,"lite.realtime.nationalrail.co.uk",sizeof(wsdlHost));
   strlcpy(wsdlAPI,"/OpenLDBWS/wsdl.aspx?ver=2021-11-01",sizeof(wsdlAPI));
   u8g2.begin();
+#if defined(DISPLAY_CYD)
+  button.begin();
+#endif
   u8g2.setContrast(brightness);       // Initial brightness
   u8g2.setDrawColor(1);               // Only a monochrome display, so set the colour to "on"
   u8g2.setFontMode(1);                // Transparent fonts
