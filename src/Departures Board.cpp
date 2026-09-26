@@ -892,9 +892,32 @@ void draw7Segment8(int x, int y, int h, char digit) {
 // Draws the full screen, Network SouthEast style clock
 void drawNSEclock(bool fullDraw = true) {
   char clockdigits[7];
-  int top;
   sprintf(clockdigits,"%02d%02d%02d",timeinfo.tm_hour,timeinfo.tm_min,timeinfo.tm_sec);
 
+#if defined(DISPLAY_CYD)
+  const int digitH = 50;
+  const int secH = 36;
+  const int top = (SCREEN_HEIGHT - digitH) / 2; // 95
+
+  if (fullDraw) {
+    u8g2.clearBuffer();
+  } else {
+    blankArea(8, top - 2, 304, digitH + 4);
+  }
+  draw7Segment8(10, top, digitH, clockdigits[0]);
+  draw7Segment8(61, top, digitH, clockdigits[1]);
+  u8g2.drawFilledEllipse(114, top + 12, 4, 4);
+  u8g2.drawFilledEllipse(114, top + 38, 4, 4);
+  draw7Segment8(132, top, digitH, clockdigits[2]);
+  draw7Segment8(183, top, digitH, clockdigits[3]);
+  u8g2.drawFilledEllipse(236, top + 25, 4, 4);
+  draw7Segment8(252, top + (digitH - secH), secH, clockdigits[4]);
+  draw7Segment8(285, top + (digitH - secH), secH, clockdigits[5]);
+
+  if (fullDraw) u8g2.sendBuffer();
+  else u8g2.updateDisplayArea(0, 11, CYD_NATIVE_TILE_WIDTH, 8);
+#else
+  int top;
   if (fullDraw) {
     u8g2.clearBuffer();
     top = 11;
@@ -913,6 +936,7 @@ void drawNSEclock(bool fullDraw = true) {
   u8g2.drawFilledEllipse(93,top+30,4,4);
 
   if (fullDraw) u8g2.sendBuffer(); else u8g2.updateDisplayArea(1,0,31,6);
+#endif
 }
 
 // Draw the NR clock (if the time has changed)
@@ -4263,6 +4287,10 @@ void loop(void) {
     }
   } else if (button.wasLongTapped() && longPressClock) {
     NSEclockIsActive = !NSEclockIsActive;
+    if (NSEclockIsActive) {
+      isSleeping = true;
+      drawNSEclock(true);
+    }
   }
 
   if (millis()-lastTimeUpdate >= 100) {

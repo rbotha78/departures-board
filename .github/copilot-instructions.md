@@ -41,6 +41,10 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
   with the clock digits and cleared via tile band `y=200..239` (`ty=25, th=5`).
 - The clock width is anchored against `"88:88:88"` to prevent horizontal
   movement as its digits change.
+- The full-screen NSE clock (`drawNSEclock`) is scaled and centered on CYD:
+  50 px hours/minutes and 36 px bottom-aligned seconds centered horizontally
+  (`x = 10..310`, 10 px margins) and vertically (`top = 95`, 95 px margins).
+  Second-by-second updates clear `y = 93..147` via tile band `y = 88..151` (`ty = 11, th = 8`).
 - CYD National Rail service and feed rows use the fixed-width, bold
   `u8g2_font_7x14B_tf` font at 1x scale.
 - The primary CYD service uses two rows: scheduled time and destination first,
