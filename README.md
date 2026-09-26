@@ -1,6 +1,6 @@
 # departures-board [![License Badge](https://img.shields.io/badge/BY--NC--SA%204.0%20License-grey?style=flat&logo=creativecommons&logoColor=white)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
-This is an ESP32 based Departures Board replicating those at many UK railway stations (using data provided by National Rail's public API), London Underground Arrivals boards (using data provided by TfL) and UK wide bus stops (using data provided by bustimes.org). This implementation uses a 3.12" OLED display panel with SSD1322 display controller onboard, plus an optional TTP223 touch sensor. STL files are also provided for 3D printing the custom desktop case. Pre-assembled departure boards are also available exclusively from our [store](https://store.gadec.co.uk).
+This is an ESP32 based Departures Board replicating those at many UK railway stations (using data provided by National Rail's public API), London Underground Arrivals boards (using data provided by TfL) and UK wide bus stops (using data provided by bustimes.org). This implementation uses a 3.12" OLED display panel with SSD1322 display controller onboard, plus an optional TTP223 touch sensor. STL files are also provided for 3D printing the custom desktop case.
 
 The default `esp32dev` PlatformIO environment targets the original SSD1322 OLED board. To build for an ESP32-2432S028R Cheap Yellow Display (CYD), use the `cyd` environment; it enables the integrated ILI9341 TFT, BOOT button input, backlight control, and a native 320x240 display layout. CYD National Rail service and feed rows use the fixed-width `u8g2_font_7x14B_tf` font at 1x scale.
 <img src="https://github.com/user-attachments/assets/81d6750f-3e02-48c8-a199-595bb0697681" style="display:block; margin:0 auto;"/>
@@ -195,5 +195,20 @@ To set a custom time zone for the departure board clock, you will need to enter 
 <a href="https://buymeacoffee.com/gadec.uk"><img src="https://github.com/user-attachments/assets/e5960046-051a-45af-8730-e23d4725ab53" align="left" width="160" style="margin-right: 15px;" /></a>
 This software is completely free for non-commercial use without obligation. If you would like to support me and encourage ongoing updates, you can [buy me a coffee!](https://buymeacoffee.com/gadec.uk)
 
-### Licence
-This work is licensed under **Creative Commons Attribution-NonCommercial-ShareAlike 4.0**. To view a copy of this licence, visit [https://creativecommons.org/licenses/by-nc-sa/4.0/](https://creativecommons.org/licenses/by-nc-sa/4.0/). Note: the terms of the licence prohibit commercial use of this work, this includes *any* reselling of the work in kit or assembled form for commercial gain.
+## Credits & Licensing
+
+This is a personal hobby fork that modifies the original departures board firmware to support the ESP32-2432S028R Cheap Yellow Display (CYD). 
+
+This project combines work from two sources:
+* **Base Firmware:** Inherited from [gadec-uk/departures-board](https://github.com), which is licensed under **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (CC BY-NC-SA 4.0)**.
+* **CYD Hardware Configuration:** Display initialization, pin mappings, and community examples adapted from [witnessmenow/ESP32-Cheap-Yellow-Display](https://github.com), which is licensed under the **MIT License**.
+
+### License Summary
+
+In accordance with the **ShareAlike** requirements of the base project, this entire repository remains licensed under **CC BY-NC-SA 4.0**. 
+
+* **Attribution:** Credit belongs to the original creators of both repositories. 
+* **Non-Commercial:** This project is strictly for personal, non-commercial use. Reselling this software, or selling pre-assembled CYD boards pre-loaded with this software for commercial gain, is strictly prohibited under the terms of this license.
+* **ShareAlike:** Any further forks or modifications of this code must also be distributed under the same CC BY-NC-SA 4.0 license.
+
+To view a copy of the full legal text for this license, visit [Creative Commons BY-NC-SA 4.0](https://creativecommons.org).
