@@ -42,9 +42,7 @@ with legacy OLED tile dimensions (`tw <= 32 && ty + th <= 8`).
 - The clock width is anchored against `"88:88:88"` to prevent horizontal
   movement as its digits change.
 - CYD National Rail service and feed rows use the fixed-width, bold
-  `u8g2_font_7x14B_tf` font at 1x scale. The `ArimoRegular11` font and its
-  license are retained for comparison and must not be removed unless explicitly
-  requested.
+  `u8g2_font_7x14B_tf` font at 1x scale.
 - The primary CYD service uses two rows: scheduled time and destination first,
   then platform and expected/departure status. Keep this layout CYD-only; the
   OLED primary service remains a single row.
