@@ -762,11 +762,19 @@ void drawStationHeader(const char *stopName, const char *callingStopName, const 
 #endif
 
   // Clear the top line
+#if defined(DISPLAY_CYD)
+  if (boardMode == MODE_TUBE) {
+    blankArea(0,ULINE0,SCREEN_WIDTH,ULINE1-1);
+  } else {
+    blankArea(0,LINE0,SCREEN_WIDTH,LINE1-1);
+  }
+#else
   if (boardMode == MODE_TUBE || boardMode == MODE_BUS) {
     blankArea(0,ULINE0,256,ULINE1-1);
   } else {
     blankArea(0,LINE0,256,LINE1-1);
   }
+#endif
 
 #if defined(DISPLAY_CYD)
   u8g2.setFont(NatRailTall12);
@@ -983,7 +991,8 @@ void drawCurrentTime() {
       strcpy(displayedTime,currentTime);
       if (dateEnabled && timeinfo.tm_mday!=dateDay) {
         // Need to update the date on screen
-        drawStationHeader(station.location,callingStation,locationFilter,nrTimeOffset);
+        if (boardMode == MODE_BUS) drawStationHeader(locationName,"",locationFilter,0);
+        else drawStationHeader(station.location,callingStation,locationFilter,nrTimeOffset);
         u8g2.sendBuffer();  // Just refresh on new date
       }
     }
@@ -2604,6 +2613,98 @@ void drawUndergroundBoard() {
  * Bus Departures Board
  *
  */
+#if defined(DISPLAY_CYD)
+void drawBusService(int serviceId, int y, int destPos) {
+  char clipDestination[MAXLOCATIONSIZE];
+  char etd[16];
+
+  if (serviceId < station.numServices) {
+    u8g2.setTextScale(1);
+    setRailDetailFont();
+    blankArea(0,y,SCREEN_WIDTH,22);
+    const int baseline = railDetailBaseline(y);
+
+    u8g2.drawStr(0,baseline,station.service[serviceId].via);
+    if (isDigit(station.service[serviceId].etd[0])) {
+      sprintf(etd,"Exp %s",station.service[serviceId].etd);
+    } else if (station.service[serviceId].etd[0]) {
+      strcpy(etd,station.service[serviceId].etd);
+    } else {
+      strcpy(etd,station.service[serviceId].sTime);
+    }
+    int etdWidth = getStringWidth(etd) + (etd[strlen(etd)-1]=='1'?1:0);
+    u8g2.drawStr(CYD_DETAIL_STATUS_RIGHT - etdWidth,baseline,etd);
+
+    // work out if we need to clip the destination
+    strcpy(clipDestination,station.service[serviceId].destination);
+    int spaceAvailable = CYD_DETAIL_STATUS_RIGHT - destPos - etdWidth - 8;
+    if (spaceAvailable > 0 && getStringWidth(clipDestination) > spaceAvailable) {
+      while (getStringWidth(clipDestination) > spaceAvailable - 8 && strlen(clipDestination) > 0) {
+        clipDestination[strlen(clipDestination)-1] = '\0';
+      }
+      if (clipDestination[strlen(clipDestination)-1] == ' ') clipDestination[strlen(clipDestination)-1] = '\0';
+      strcat(clipDestination,"...");
+    }
+    if (spaceAvailable > 0) {
+      u8g2.drawStr(destPos,baseline,clipDestination);
+    }
+  }
+}
+
+// Draw/update the Bus Departures Board
+void drawBusDeparturesBoard() {
+  u8g2.setFontPosBaseline();
+  if (firstLoad) {
+    u8g2.clearBuffer();
+    u8g2.setContrast(brightness);
+    firstLoad=false;
+    cydSecondaryServiceIndex = 2;
+    serviceTimer = millis() + 10000;
+  } else {
+    blankArea(0,0,SCREEN_WIDTH,LINE4);
+  }
+  drawStationHeader(locationName,"",locationFilter,0);
+
+  u8g2.setTextScale(1);
+  setRailDetailFont();
+
+  if (station.numServices == 0) {
+    centreText("There are no scheduled services at this stop.",railDetailBaseline(90));
+  } else {
+    drawBusService(0,68,busDestX);
+    if (station.numServices > 1) drawBusService(1,102,busDestX);
+    if (station.numServices > 2) {
+      if (cydSecondaryServiceIndex < 2 || cydSecondaryServiceIndex >= station.numServices) {
+        cydSecondaryServiceIndex = 2;
+      }
+      drawBusService(cydSecondaryServiceIndex,136,busDestX);
+    }
+  }
+
+  // Draw bottom ticker attribution / weather
+  if (messages.numMessages > 0) {
+    currentMessage = 0;
+    scrollStopsXpos = 0;
+    scrollStopsLength = getStringWidth(line2[currentMessage]);
+    blankArea(0,LINE3,SCREEN_WIDTH,20);
+    u8g2.setClipWindow(0,LINE3,SCREEN_WIDTH,LINE3+20);
+    if (scrollStopsLength <= SCREEN_WIDTH) {
+      centreText(line2[currentMessage],railDetailBaseline(LINE3));
+    } else {
+      u8g2.drawStr(scrollStopsXpos,railDetailBaseline(LINE3),line2[currentMessage]);
+    }
+    u8g2.setMaxClipWindow();
+    timer = millis() + 6000;
+  }
+
+  displayedTime[0] = '\0';
+  drawCurrentTime();
+  setRailDetailFont();
+  u8g2.setFontPosBaseline();
+
+  u8g2.sendBuffer();
+}
+#else
 void drawBusService(int serviceId, int y, int destPos) {
   char clipDestination[MAXLOCATIONSIZE];
   char etd[16];
@@ -2675,6 +2776,7 @@ void drawBusDeparturesBoard() {
   }
   u8g2.sendBuffer();
 }
+#endif
 
 void updateBusDepartures() {
   busdata.loadDepartures(&station);
@@ -2683,12 +2785,21 @@ void updateBusDepartures() {
   dataLoadSuccess++;
   // Work out the max column size for service numbers
   busDestX=0;
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(1);
+  setRailDetailFont();
+#else
   u8g2.setFont(NatRailSmall9);
+#endif
   for (int i=0;i<station.numServices;i++) {
     int svcWidth = getStringWidth(station.service[i].via);
     busDestX = (busDestX > svcWidth) ? busDestX : svcWidth;
   }
-  busDestX+=5;
+#if defined(DISPLAY_CYD)
+  busDestX += 10;
+#else
+  busDestX += 5;
+#endif
   if (weatherEnabled && weatherMsg[0]) {
     strcpy(line2[0],weatherMsg);
     strcpy(line2[1],btAttribution);
@@ -3724,6 +3835,108 @@ void undergroundArrivalsLoop() {
 // Processing loop for Bus Departures board
 //
 void busDeparturesLoop() {
+#if defined(DISPLAY_CYD)
+  if (millis()>nextDataUpdate && !fetchInProgress && !isSleeping && wifiConnected) {
+    if (!firstLoad) showUpdateIcon(true);
+    // Initiate a background update on Core 0
+    fetchMode = FETCH_BOARD;
+    fetchInProgress = true;
+    xTaskNotifyGive(fetchTaskHandle);
+    if (firstLoad) waitForFirstLoad();
+    if (lastUpdateResult == UPD_NO_CHANGE) lastUpdateResult = UPD_SUCCESS;
+  }
+
+  if (fetchComplete && updateIconVisible) showUpdateIcon(false);
+
+  if (fetchComplete && lastUpdateResult == UPD_NO_CHANGE) {
+    fetchComplete=false;
+    updateBusDepartures();
+    blankArea(0,64,SCREEN_WIDTH,LINE3-64);
+    if (station.numServices) {
+      drawBusService(0,68,busDestX);
+      if (station.numServices>1) drawBusService(1,102,busDestX);
+      if (station.numServices>2) {
+        if (cydSecondaryServiceIndex < 2 || cydSecondaryServiceIndex >= station.numServices) {
+          cydSecondaryServiceIndex = 2;
+        }
+        drawBusService(cydSecondaryServiceIndex,136,busDestX);
+      }
+    } else {
+      centreText("There are no scheduled services at this stop.",railDetailBaseline(90));
+    }
+    u8g2.updateDisplayArea(0, CYD_TILE_SERVICE_PANEL_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_SERVICE_PANEL_H);
+  }
+
+  if (fetchComplete && lastUpdateResult != UPD_NO_CHANGE && !isSleeping) {
+    fetchComplete = false;
+    if (lastUpdateResult == UPD_SUCCESS) {
+      updateBusDepartures();
+      drawBusDeparturesBoard();
+    } else if (lastUpdateResult == UPD_DATA_ERROR || lastUpdateResult == UPD_TIMEOUT || lastUpdateResult == UPD_HTTP_ERROR) {
+      lastLoadFailure = millis();
+      dataLoadFailure++;
+      if (noDataLoaded) showNoDataScreen(); else drawBusDeparturesBoard();
+    } else if (lastUpdateResult == UPD_UNAUTHORISED) {
+      showTokenErrorScreen();
+      while (true) delay(10);
+    } else {
+      dataLoadFailure++;
+    }
+  }
+
+  // Rotate 3rd service line if there are more than 3 services
+  if (station.numServices > 3 && millis() > serviceTimer && !isSleeping && !noDataLoaded) {
+    cydSecondaryServiceIndex++;
+    if (cydSecondaryServiceIndex >= station.numServices) cydSecondaryServiceIndex = 2;
+    blankArea(0,136,SCREEN_WIDTH,LINE3-136);
+    drawBusService(cydSecondaryServiceIndex,136,busDestX);
+    u8g2.updateDisplayArea(0, 16, CYD_NATIVE_TILE_WIDTH, 6);
+    serviceTimer = millis() + 10000;
+  }
+
+  // Bottom ticker (attribution and weather)
+  if (messages.numMessages > 0 && !isSleeping) {
+    if (scrollStopsLength <= SCREEN_WIDTH) {
+      if (millis() > timer) {
+        currentMessage = (currentMessage + 1) % messages.numMessages;
+        scrollStopsLength = getStringWidth(line2[currentMessage]);
+        scrollStopsXpos = 0;
+        blankArea(0,LINE3,SCREEN_WIDTH,20);
+        u8g2.setClipWindow(0,LINE3,SCREEN_WIDTH,LINE3+20);
+        if (scrollStopsLength <= SCREEN_WIDTH) {
+          centreText(line2[currentMessage],railDetailBaseline(LINE3));
+          timer = millis() + 6000;
+        } else {
+          u8g2.drawStr(scrollStopsXpos,railDetailBaseline(LINE3),line2[currentMessage]);
+          timer = millis();
+        }
+        u8g2.setMaxClipWindow();
+        u8g2.updateDisplayArea(0, CYD_TILE_BOTTOM_TICKER_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_BOTTOM_TICKER_H);
+      }
+    } else {
+      blankArea(0,LINE3,SCREEN_WIDTH,20);
+      u8g2.setClipWindow(0,LINE3,SCREEN_WIDTH,LINE3+20);
+      u8g2.drawStr(scrollStopsXpos,railDetailBaseline(LINE3),line2[currentMessage]);
+      u8g2.setMaxClipWindow();
+      scrollStopsXpos--;
+      if (scrollStopsXpos < -scrollStopsLength) {
+        currentMessage = (currentMessage + 1) % messages.numMessages;
+        scrollStopsLength = getStringWidth(line2[currentMessage]);
+        scrollStopsXpos = 0;
+        timer = millis() + (scrollStopsLength <= SCREEN_WIDTH ? 6000 : 0);
+      }
+      u8g2.updateDisplayArea(0, CYD_TILE_BOTTOM_TICKER_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_BOTTOM_TICKER_H);
+    }
+  }
+
+  if (!isSleeping) {
+    drawCurrentTime();
+
+    delayMs = frameTimeBus - (millis()-refreshTimer);
+    if (delayMs>0) delay(delayMs);
+    refreshTimer=millis();
+  }
+#else
   bool fullRefresh = false;
 
   if (millis()>nextDataUpdate && !fetchInProgress && !isSleeping && wifiConnected) {
@@ -3863,6 +4076,7 @@ void busDeparturesLoop() {
     if (fullRefresh) u8g2.updateDisplayArea(0,1,32,6); else u8g2.updateDisplayArea(0,5,32,2);
     refreshTimer=millis();
   }
+#endif
 }
 
 // The Core 0 Background Task
