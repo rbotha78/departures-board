@@ -1,6 +1,8 @@
 # departures-board [![License Badge](https://img.shields.io/badge/BY--NC--SA%204.0%20License-grey?style=flat&logo=creativecommons&logoColor=white)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 This is an ESP32 based Departures Board replicating those at many UK railway stations (using data provided by National Rail's public API), London Underground Arrivals boards (using data provided by TfL) and UK wide bus stops (using data provided by bustimes.org). This implementation uses a 3.12" OLED display panel with SSD1322 display controller onboard, plus an optional TTP223 touch sensor. STL files are also provided for 3D printing the custom desktop case. Pre-assembled departure boards are also available exclusively from our [store](https://store.gadec.co.uk).
+
+The default `esp32dev` PlatformIO environment targets the original SSD1322 OLED board. To build for an ESP32-2432S028R Cheap Yellow Display (CYD), use the `cyd` environment; it enables the integrated ILI9341 TFT, BOOT button input, backlight control, and a native 320x240 display layout. CYD National Rail service and feed rows use the fixed-width `u8g2_font_7x14B_tf` font at 1x scale.
 <img src="https://github.com/user-attachments/assets/81d6750f-3e02-48c8-a199-595bb0697681" style="display:block; margin:0 auto;"/>
 
 A larger LED Matrix version of this project, with audio station announcements, is also available [here](https://github.com/gadec-uk/matrix-departures-board).
@@ -77,6 +79,8 @@ Solder the 4 SPI connections, plus power and ground. The wires **MUST** be solde
 ### Installing the firmware
 
 The project uses the Arduino framework and the ESP32 v3.3.9 core. If you want to build from source, you'll need [PlatformIO](https://platformio.org). The software is designed for, and makes use of, a dual-core ESP32 processor. If you attempt to target and compile for a single core ESP32 variant the experience will be suboptimal at best.
+
+Build the original OLED firmware with `pio run -e esp32dev`, or the CYD firmware with `pio run -e cyd`.
 
 The easiest way to install the firmware for the first time is to use the online web based installer [here](https://departures-board.github.io). You will need to use Chrome, Edge or Firefox as your browser as Safari does not support Web Serial.
 

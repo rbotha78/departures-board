@@ -23,6 +23,11 @@
  * VCC            3.3V
  * I/O            IO34
  *
+ * ESP32 Cheap Yellow Display (ESP32-2432S028R) with its integrated
+ * 320x240 TFT and XPT2046 touchscreen.
+ * Referenced from https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display
+ * Wiring and usage instructions can be found in the referenced repository.
+ * 
  */
 
 #include <Arduino.h>
@@ -56,6 +61,7 @@
 #include <webgui/rss.h>
 #include <gfx/xbmgfx.h>
 #include <time.h>
+#include <array>
 
 #include <SPI.h>
 #include <U8g2lib.h>
@@ -130,12 +136,39 @@ static const char successPage[] =
 "<h2>Upload another file</h2><form method=\"post\" action=\"/upload\" enctype=\"multipart/form-data\"><input type=\"file\" name=\"name\"><input class=\"button\" type=\"submit\" value=\"Upload\"></form>\n"
 "</body></html>";
 
+#if defined(DISPLAY_CYD)
+#define SCREEN_WIDTH 320 // Native CYD canvas width, in pixels
+#define SCREEN_HEIGHT 240 // Native CYD canvas height, in pixels
+#else
 #define SCREEN_WIDTH 256 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#endif
+
+#if defined(DISPLAY_CYD)
+#define DIMMED_BRIGHTNESS 20 // CYD display brightness level when in sleep/screensaver mode (0-255)
+#include "cydDisplay.h"
+U8G2_CYD_TFT u8g2;
+#else
 #define DIMMED_BRIGHTNESS 1 // OLED display brightness level when in sleep/screensaver mode
-
 U8G2_SSD1322_NHD_256X64_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ GPIO_NUM_26, /* dc=*/ GPIO_NUM_5, /* reset=*/ U8X8_PIN_NONE);
+#endif
 
+#if defined(DISPLAY_CYD)
+// Vertical line positions on the native CYD display (National Rail)
+#define LINE0 0
+#define LINE1 64
+#define PRIMARY_MESSAGE_LINE 108
+#define LINE2 130
+#define LINE3 174
+#define LINE4 204
+
+// Vertical line positions on the native CYD display (Underground)
+#define ULINE0 0
+#define ULINE1 80
+#define ULINE2 116
+#define ULINE3 152
+#define ULINE4 188
+#else
 // Vertical line positions on the OLED display (National Rail)
 #define LINE0 0
 #define LINE1 13
@@ -149,6 +182,7 @@ U8G2_SSD1322_NHD_256X64_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ GPIO_NUM_26, /* dc=*/
 #define ULINE2 28
 #define ULINE3 41
 #define ULINE4 56
+#endif
 
 static Ticker restartTimer; // used to schedule reboots
 
@@ -302,6 +336,19 @@ static const uint8_t UndergroundClock8[150] U8G2_FONT_SECTION("UndergroundClock8
   "\251\310\250\26\31\233\244\2\67\12G\305\70\310\204z\225\2\70\15G\305\251\310h\222\212\214MR\1\71"
   "\15G\305\251\310h\22+\215&\251\0:\6\262\257 \22\0\0\0";
 
+// Body font used for plain setup/notification screen text (no icon glyphs), per the configurable font style
+static const uint8_t *bodyFont() {
+  return NatRailSmall9;
+}
+
+static void setRailDetailFont() {
+#if defined(DISPLAY_CYD)
+  u8g2.setFont(u8g2_font_7x14B_tf);
+#else
+  u8g2.setFont(NatRailSmall9);
+#endif
+}
+
 // Service attribution texts
 static const char nrAttributionn[] = "Powered by National Rail Enquiries";
 static const char rdgAttribution[] = "Powered by Rail Delivery Group";
@@ -361,7 +408,7 @@ static bool firmwareUpdates = true;        // Check for and install firmware upd
 static bool dailyUpdateCheck = false;      // Check for and install firmware updates at midnight?
 static byte sleepStarts = 0;               // Hour at which the overnight sleep (screensaver) begins
 static byte sleepEnds = 6;                 // Hour at which the overnight sleep (screensaver) ends
-static int brightness = 50;                // Initial brightness level of the OLED screen
+static int brightness = 50;                // Initial backlight brightness level
 static unsigned long lastWiFiReconnect=0;  // Last WiFi reconnection time (millis)
 static bool firstLoad = true;              // Are we loading for the first time (no station config)?
 static int prevProgressBarPosition=0;      // Used for progress bar smooth animation
@@ -390,7 +437,11 @@ static int nrTimeOffset = 0;               // Offset minutes for Rail departures
 static int prevUpdateCheckDay;             // Day of the month the last daily firmware update check was made
 static unsigned long fwUpdateCheckTimer=0; // Next time to check if the day has rolled over for firmware update check
 static bool apiKeys = false;               // Does apikeys.json exist?
-static bool touchEnabled = false;          // TTP223 Touch Sensor installed?
+#if defined(DISPLAY_CYD)
+static bool touchEnabled = true;            // Onboard BOOT button
+#else
+static bool touchEnabled = false;           // Optional TTP223 touch sensor installed?
+#endif
 static bool useRDMclient = false;          // Use the new Rail Data Marketplace API instead of Darwin Lite
 static bool enableScheduler = false;
 static bool enableCarousel = false;
@@ -479,6 +530,28 @@ static bool isShowingVia=false;
 static unsigned long serviceTimer=0;
 static unsigned long viaTimer=0;
 static bool showingMessage = false;
+#if defined(DISPLAY_CYD)
+static const int CYD_SECOND_SERVICE_INFO_OFFSET = 22;
+static const int CYD_DETAIL_STATUS_RIGHT = SCREEN_WIDTH - 12;
+static const uint8_t CYD_TILE_SERVICE_PANEL_Y = 8;     // y = 64..175 (14 tile rows)
+static const uint8_t CYD_TILE_SERVICE_PANEL_H = 14;
+static const uint8_t CYD_TILE_PRIMARY_MSG_Y = 13;     // y = 104..127 (3 tile rows)
+static const uint8_t CYD_TILE_PRIMARY_MSG_H = 3;
+static const uint8_t CYD_TILE_SECONDARY_SERVICE_Y = 16;// y = 128..175 (6 tile rows)
+static const uint8_t CYD_TILE_SECONDARY_SERVICE_H = 6;
+static const uint8_t CYD_TILE_BOTTOM_TICKER_Y = 21;   // y = 168..199 (4 tile rows)
+static const uint8_t CYD_TILE_BOTTOM_TICKER_H = 4;
+static const uint8_t CYD_TILE_CLOCK_Y = 25;           // y = 200..239 (5 tile rows)
+static const uint8_t CYD_TILE_CLOCK_H = 5;
+static char displayedPrimaryServiceMessage[MAXCALLINGSIZE+12];
+static int primaryServiceMessageScrollX = 0;
+static int primaryServiceMessageWidth = 0;
+static char cydPrimaryMessages[5+MAXBOARDMESSAGES][MAXCALLINGSIZE+12];
+static int cydPrimaryMessageCount = 0;
+static int cydPrimaryMessageIndex = 0;
+static int cydSecondaryServiceIndex = 1;
+static unsigned long primaryServiceMessageTimer = 0;
+#endif
 
 // TfL/bus specific animation
 static int scrollPrimaryYpos = 0;
@@ -503,8 +576,13 @@ static String rssName;                                 // Name of feed for atrri
 static char rssMessage[MAXMESSAGESIZE] = "";           // Holds the current, formatted, RSS message
 
 
-// Optional TTP223 touch sensor / push button
+#if defined(DISPLAY_CYD)
+// CYD touchscreen and BOOT button
+touchSensor button(0);
+#else
+// Optional TTP223 touch sensor for the OLED board
 touchSensor button(GPIO_NUM_34);
+#endif
 
 // FreeRTOS Task Handle and Status Flags
 TaskHandle_t fetchTaskHandle = NULL;
@@ -524,16 +602,44 @@ enum fetchModes {
 fetchModes fetchMode = FETCH_BOARD;
 
 /*
- * Graphics helper functions for OLED panel
+ * Graphics helper functions for the virtual departures-board display
 */
 void blankArea(int x, int y, int w, int h) {
+#if defined(DISPLAY_CYD)
+  if (w == 256) w = SCREEN_WIDTH;
+  if (h >= 8 && h <= 11) h = 20;
+#endif
   u8g2.setDrawColor(0);
   u8g2.drawBox(x,y,w,h);
   u8g2.setDrawColor(1);
 }
 
+void setDisplayClipWindow(int x0, int y0, int x1, int y1) {
+#if defined(DISPLAY_CYD)
+  if (x1 == 256) x1 = SCREEN_WIDTH;
+  if (y1 - y0 >= 8 && y1 - y0 <= 11) y1 = y0 + 20;
+#endif
+  u8g2.setClipWindow(x0,y0,x1,y1);
+}
+
 int getStringWidth(const char *message) {
   return u8g2.getStrWidth(message);
+}
+
+int railDetailBaseline(int rowTop) {
+#if defined(DISPLAY_CYD)
+  return rowTop + u8g2.getAscent();
+#else
+  return rowTop - 1;
+#endif
+}
+
+int railDetailScrollBaseline(int legacyBaseline) {
+#if defined(DISPLAY_CYD)
+  return legacyBaseline + u8g2.getAscent();
+#else
+  return legacyBaseline;
+#endif
 }
 
 void drawTruncatedText(const char *message, int line, int x) {
@@ -552,24 +658,58 @@ void centreText(const char *message, int line, int margin=0, int maxWidth = SCRE
   else drawTruncatedText(message,line,0);
 }
 
+void drawStationTitle(const char *message, int x, int y) {
+  u8g2.drawStr(x,y,message);
+#if defined(DISPLAY_CYD)
+  u8g2.drawStr(x+1,y,message);
+#endif
+}
+
+void drawTruncatedStationTitle(const char *message, int line, int x) {
+  char buff[strlen(message)+4];
+  int maxWidth = SCREEN_WIDTH - 6 - x;
+  strcpy(buff,message);
+  int i = strlen(buff);
+  while (u8g2.getStrWidth(buff)>maxWidth && i) buff[i--] = '\0';
+  strcat(buff,"...");
+  drawStationTitle(buff,x,line);
+}
+
+void centreStationTitle(const char *message, int line, int margin=0, int maxWidth = SCREEN_WIDTH) {
+  int width = u8g2.getStrWidth(message);
+  if (width<=maxWidth) drawStationTitle(message,((maxWidth-width)/2)+margin,line);
+  else drawTruncatedStationTitle(message,line,0);
+}
+
 void drawProgressBar(int percent) {
-  int newPosition = (percent*190)/100;
-  u8g2.drawFrame(32,36,192,12);
+#if defined(DISPLAY_CYD)
+  const int x = 32;
+  const int y = 80;
+  const int width = 240;
+  const int height = 14;
+#else
+  const int x = 32;
+  const int y = 36;
+  const int width = 192;
+  const int height = 12;
+#endif
+  int newPosition = (percent*(width-2))/100;
+  u8g2.drawFrame(x,y,width,height);
   if (prevProgressBarPosition>newPosition) {
     for (int i=prevProgressBarPosition;i>=newPosition;i--) {
       u8g2.setDrawColor(0);
-      u8g2.drawBox(33,37,190,10);
+      u8g2.drawBox(x+1,y+1,width-2,height-2);
       u8g2.setDrawColor(1);
-      u8g2.drawBox(33,37,i,10);
+      u8g2.drawBox(x+1,y+1,i,height-2);
       u8g2.updateDisplayArea(0,3,32,3);
       delay(5);
     }
   } else {
     for (int i=prevProgressBarPosition;i<=newPosition;i++) {
       u8g2.setDrawColor(0);
-      u8g2.drawBox(33,37,190,10);
+      u8g2.drawBox(x+1,y+1,width-2,height-2);
       u8g2.setDrawColor(1);
-      u8g2.drawBox(33,37,i,10);
+      u8g2.drawBox(x+1,y+1,i,height-2);
       u8g2.updateDisplayArea(0,3,32,3);
       delay(5);
     }
@@ -578,26 +718,39 @@ void drawProgressBar(int percent) {
 }
 
 void progressBar(const char *text, int percent) {
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
+#if defined(DISPLAY_CYD)
+  blankArea(0,52,SCREEN_WIDTH,48);
+  centreText(text,52);
+#else
   blankArea(0,24,256,25);
   centreText(text,24);
+#endif
   drawProgressBar(percent);
 }
 
 void drawFirmware() {
   char firmware[16];
   sprintf(firmware,"B%d.%d-W%d.%d",VERSION_MAJOR,VERSION_MINOR,WEBAPPVER_MAJOR,WEBAPPVER_MINOR);
-   u8g2.drawStr(0,53,firmware);
+#if defined(DISPLAY_CYD)
+  u8g2.drawStr(0,SCREEN_HEIGHT-20,firmware);
+#else
+  u8g2.drawStr(0,53,firmware);
+#endif
 }
 
 void drawStartupHeading() {
   u8g2.setFont(NatRailTall12);
   centreText("Departures Board",0);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   drawFirmware();
 }
 
 void drawStationHeader(const char *stopName, const char *callingStopName, const char *platFilter, const int timeOffset) {
+#if defined(DISPLAY_CYD)
+  uint8_t previousTextScale = u8g2.getTextScale();
+  u8g2.setTextScale(2);
+#endif
 
   // Clear the top line
   if (boardMode == MODE_TUBE || boardMode == MODE_BUS) {
@@ -606,7 +759,13 @@ void drawStationHeader(const char *stopName, const char *callingStopName, const 
     blankArea(0,LINE0,256,LINE1-1);
   }
 
+#if defined(DISPLAY_CYD)
+  u8g2.setFont(NatRailTall12);
+  const int titleBaseline = 10 + (u8g2.getAscent() * u8g2.getTextScale());
+#else
   u8g2.setFont(NatRailSmall9);
+  const int titleBaseline = LINE0-1;
+#endif
   char boardTitle[95];
   strlcpy(boardTitle,stopName,sizeof(boardTitle));
   if (timeOffset || platFilter[0] || callingStopName[0]) strlcat(boardTitle," ",sizeof(boardTitle));
@@ -641,23 +800,26 @@ void drawStationHeader(const char *stopName, const char *callingStopName, const 
     if (callingStopName[0] || boardTitleWidth+dateWidth+10+titleOffset>=SCREEN_WIDTH) {
       blankArea(SCREEN_WIDTH-70,dateY,70,SCREEN_HEIGHT-dateY);
       u8g2.drawStr(SCREEN_WIDTH-dateWidth,dateY-1,sysTime); // Date bottom right
-      if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreText(boardTitle,LINE0-1);
-      else drawTruncatedText(boardTitle,LINE0-1,titleOffset);
+      if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreStationTitle(boardTitle,titleBaseline);
+      else drawTruncatedStationTitle(boardTitle,titleBaseline,titleOffset);
     } else {
-      u8g2.drawStr(SCREEN_WIDTH-dateWidth,LINE0-1,sysTime); // right-aligned date top
+      u8g2.drawStr(SCREEN_WIDTH-dateWidth,titleBaseline,sysTime); // right-aligned date top
       if ((SCREEN_WIDTH-boardTitleWidth)/2 < dateWidth+8) {
         // station name left aligned
-        u8g2.drawStr(titleOffset,LINE0-1,boardTitle);
+        drawStationTitle(boardTitle,titleOffset,titleBaseline);
       } else {
-        centreText(boardTitle,LINE0-1);
+        centreStationTitle(boardTitle,titleBaseline);
       }
     }
   } else {
-    if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreText(boardTitle,LINE0-1);
-    else drawTruncatedText(boardTitle,LINE0-1,titleOffset);
+    if (boardTitleWidth+titleOffset < SCREEN_WIDTH) centreStationTitle(boardTitle,titleBaseline);
+    else drawTruncatedStationTitle(boardTitle,titleBaseline,titleOffset);
   }
 
-  if (titleOffset) u8g2.drawStr(0,LINE0-1,schedulerActive?"\x87":"\x88");
+  if (titleOffset) u8g2.drawStr(0,titleBaseline,schedulerActive?"\x87":"\x88");
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(previousTextScale);
+#endif
 }
 
 // Draw a 7-segment digit at x,y with height h
@@ -730,9 +892,32 @@ void draw7Segment8(int x, int y, int h, char digit) {
 // Draws the full screen, Network SouthEast style clock
 void drawNSEclock(bool fullDraw = true) {
   char clockdigits[7];
-  int top;
   sprintf(clockdigits,"%02d%02d%02d",timeinfo.tm_hour,timeinfo.tm_min,timeinfo.tm_sec);
 
+#if defined(DISPLAY_CYD)
+  const int digitH = 50;
+  const int secH = 36;
+  const int top = (SCREEN_HEIGHT - digitH) / 2; // 95
+
+  if (fullDraw) {
+    u8g2.clearBuffer();
+  } else {
+    blankArea(8, top - 2, 304, digitH + 4);
+  }
+  draw7Segment8(10, top, digitH, clockdigits[0]);
+  draw7Segment8(61, top, digitH, clockdigits[1]);
+  u8g2.drawFilledEllipse(114, top + 12, 4, 4);
+  u8g2.drawFilledEllipse(114, top + 38, 4, 4);
+  draw7Segment8(132, top, digitH, clockdigits[2]);
+  draw7Segment8(183, top, digitH, clockdigits[3]);
+  u8g2.drawFilledEllipse(236, top + 25, 4, 4);
+  draw7Segment8(252, top + (digitH - secH), secH, clockdigits[4]);
+  draw7Segment8(285, top + (digitH - secH), secH, clockdigits[5]);
+
+  if (fullDraw) u8g2.sendBuffer();
+  else u8g2.updateDisplayArea(0, 11, CYD_NATIVE_TILE_WIDTH, 8);
+#else
+  int top;
   if (fullDraw) {
     u8g2.clearBuffer();
     top = 11;
@@ -751,15 +936,31 @@ void drawNSEclock(bool fullDraw = true) {
   u8g2.drawFilledEllipse(93,top+30,4,4);
 
   if (fullDraw) u8g2.sendBuffer(); else u8g2.updateDisplayArea(1,0,31,6);
+#endif
 }
 
 // Draw the NR clock (if the time has changed)
 void drawCurrentTime() {
+#if !defined(DISPLAY_CYD)
   char timeSeg[7];
+#endif
 
   if (strcmp(displayedTime,currentTime)) {
     if (noServiceClockIsActive) drawNSEclock(false);
     else {
+#if defined(DISPLAY_CYD)
+      u8g2.setFont(u8g2_font_logisoso20_tn);
+      int clockWidth = u8g2.getStrWidthUnscaled("88:88:88");
+      int clockX = (SCREEN_WIDTH-clockWidth)/2;
+      int clockHeight = u8g2.getAscent() - u8g2.getDescent();
+      int clockTop = SCREEN_HEIGHT - 10 - clockHeight;
+      blankArea(clockX,LINE4,clockWidth,SCREEN_HEIGHT-LINE4);
+      u8g2.setFontPosTop();
+      u8g2.drawStrUnscaled(clockX,clockTop,currentTime);
+      u8g2.setFontPosBaseline();
+      setRailDetailFont();
+      u8g2.updateDisplayArea(0, CYD_TILE_CLOCK_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_CLOCK_H);
+#else
       u8g2.setFont(NatRailClockLarge9);
       blankArea(96,LINE4,64,SCREEN_HEIGHT-LINE4);
       strlcpy(timeSeg,currentTime,7);
@@ -769,6 +970,7 @@ void drawCurrentTime() {
       u8g2.drawStr(144,LINE4+1,timeSeg);
       u8g2.setFont(NatRailSmall9);
       u8g2.updateDisplayArea(12,6,8,2);
+#endif
       strcpy(displayedTime,currentTime);
       if (dateEnabled && timeinfo.tm_mday!=dateDay) {
         // Need to update the date on screen
@@ -808,17 +1010,32 @@ void showUpdateIcon(bool show) {
       u8g2.setFont(NatRailSmall9);
       u8g2.drawStr(0,-2,"\x81");
     } else {
+#if defined(DISPLAY_CYD)
+      u8g2.setFont(NatRailTall12);
+      u8g2.drawStr(10,224,"}");
+      if (boardMode == MODE_TUBE) u8g2.setFont(Underground10);
+      else setRailDetailFont();
+#else
       u8g2.setFont(NatRailTall12);
       u8g2.drawStr(0,50,"}");
       if (boardMode == MODE_TUBE) u8g2.setFont(Underground10);
       else u8g2.setFont(NatRailSmall9);
+#endif
     }
     updateIconVisible = true;
   } else {
+#if defined(DISPLAY_CYD)
+    if (noServiceClockIsActive) blankArea(0,0,6,6); else blankArea(10,LINE4,16,SCREEN_HEIGHT-LINE4);
+#else
     if (noServiceClockIsActive) blankArea(0,0,6,6); else blankArea(0,50,6,13);
+#endif
     updateIconVisible = false;
   }
+#if defined(DISPLAY_CYD)
+  if (noServiceClockIsActive) u8g2.updateDisplayArea(0,0,1,1); else u8g2.updateDisplayArea(0,CYD_TILE_CLOCK_Y,4,CYD_TILE_CLOCK_H);
+#else
   if (noServiceClockIsActive) u8g2.updateDisplayArea(0,0,1,1); else u8g2.updateDisplayArea(0,6,1,2);
+#endif
 }
 
 /*
@@ -828,7 +1045,7 @@ void showSetupScreen() {
   u8g2.clearBuffer();
   u8g2.setFont(NatRailTall12);
   centreText("Departures Board first-time setup",0);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("To configure Wi-Fi, please connect to the",18);
   centreText("the \"Departures Board\" network and go to",32);
   centreText("http://192.168.4.1 in a web browser.",46);
@@ -852,7 +1069,7 @@ void showNoDataScreen() {
       break;
   }
   centreText(msg,-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("Please check you have selected a valid location",14);
   centreText("Go to the URL below to choose a location...",26);
   centreText(myUrl,40);
@@ -864,7 +1081,7 @@ void showSetupKeysHelpScreen() {
   char msg[60];
   u8g2.setFont(NatRailTall12);
   centreText("Departures Board Setup",-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("Next, you need to enter your API keys.",16);
   centreText("Please go to the URL below to start...",28);
   u8g2.setFont(NatRailTall12);
@@ -877,7 +1094,7 @@ void showSetupCrsHelpScreen() {
   char msg[60];
   u8g2.setFont(NatRailTall12);
   centreText("Departures Board Setup",-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("Next, you need to choose a location. Please",16);
   centreText("go to the URL below to choose a station...",28);
   u8g2.setFont(NatRailTall12);
@@ -889,7 +1106,7 @@ void showWsdlFailureScreen() {
   u8g2.clearBuffer();
   u8g2.setFont(NatRailTall12);
   centreText("The National Rail data feed is unavailable.",-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("WDSL entry point could not be accessed, so the",14);
   centreText("Departures Board cannot be loaded.",26);
   centreText("Please try again later. :(",40);
@@ -917,7 +1134,7 @@ void showTokenErrorScreen() {
       centreText("Access to the bustimes database denied.",-1);
       break;
   }
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("You must enter a valid api key, please",14);
   centreText("check you have entered it correctly below:",26);
   sprintf(msg,"%s/keys.htm",myUrl);
@@ -942,7 +1159,7 @@ void showCRSErrorScreen() {
       break;
   }
   centreText(msg,-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("Please ensure you have selected a valid station.",14);
   centreText("Go to the URL below to choose a station...",26);
   centreText(myUrl,40);
@@ -1004,7 +1221,7 @@ void showFirmwareUpdateProgress(int percent) {
   u8g2.clearBuffer();
   u8g2.setFont(NatRailTall12);
   centreText("Firmware Update in Progress",-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   progressBar("Updating Firmware",percent);
   centreText("* DO NOT REMOVE THE POWER DURING THE UPDATE *",54);
   u8g2.sendBuffer();
@@ -1015,7 +1232,7 @@ void showUpdateCompleteScreen(const char *title, const char *msg1, const char *m
   u8g2.clearBuffer();
   u8g2.setFont(NatRailTall12);
   centreText(title,-1);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText(msg1,14);
   centreText(msg2,26);
   centreText(msg3,40);
@@ -1032,7 +1249,7 @@ void showSwitchScreen() {
   if (carouselActive) centreText("Moving to next carousel slot",20);
   else if (schedulerActive) centreText("Moving to next scheduler slot",20);
   else centreText("Switching modes",20);
-  u8g2.setFont(NatRailSmall9);
+  u8g2.setFont(bodyFont());
   centreText("Waiting for background process to complete...",42);
   u8g2.sendBuffer();
 }
@@ -1196,7 +1413,15 @@ void saveFirmwareInfo() {
 
 // Write a default config file so that the Web GUI works initially (force Tube mode if no NR token)
 void writeDefaultConfig() {
-  String defaultConfig = "{\"crs\":\"\",\"station\":\"\",\"lat\":0,\"lon\":0,\"weather\":true,\"sleep\":false,\"showDate\":false,\"showBus\":false,\"update\":true,\"sleepStarts\":23,\"sleepEnds\":8,\"brightness\":20,\"tubeId\":\"\",\"tubeName\":\"\",\"mode\":" + String((!nrToken[0] && rdmDeparturesApiKey=="")?"1":"0") + "}";
+  #if defined(DISPLAY_CYD)
+  int defaultBrightness = 200;
+  bool defaultTouch = true;
+  #else
+  int defaultBrightness = 20;
+  bool defaultTouch = false;
+  #endif
+
+  String defaultConfig = "{\"crs\":\"\",\"station\":\"\",\"lat\":0,\"lon\":0,\"weather\":true,\"sleep\":false,\"showDate\":false,\"showBus\":false,\"update\":true,\"sleepStarts\":23,\"sleepEnds\":8,\"brightness\":" + String(defaultBrightness) + ",\"touch\":" + String(defaultTouch ? "true" : "false") + ",\"displayColor\":0,\"displayScale\":0,\"tubeId\":\"\",\"tubeName\":\"\",\"mode\":" + String((!nrToken[0] && rdmDeparturesApiKey=="")?"1":"0") + "}";
   saveFile("/config.json",defaultConfig);
   resetLocationIds();
   saveFirmwareInfo();
@@ -1333,6 +1558,10 @@ void loadConfig(bool coldBoot = false, boardModes requestedMode = MODE_LOADCONFI
         if (settings["noScroll"].is<bool>())          noScrolling = settings["noScroll"];
         if (settings["flip"].is<bool>())              flipScreen = settings["flip"];
         if (settings["touch"].is<bool>())             touchEnabled = settings["touch"];
+#if defined(DISPLAY_CYD)
+        if (settings["displayColor"].is<int>())        u8g2.setColorScheme((CydColorScheme)settings["displayColor"].as<int>());
+        if (settings["displayScale"].is<int>())        u8g2.setScaleMode((CydScaleMode)settings["displayScale"].as<int>());
+#endif
         if (settings["dataIcon"].is<bool>())          showDataIcon = settings["dataIcon"];
         if (settings["forceWakeTime"].is<int>())      stayAwakeSeconds = settings["forceWakeTime"];
         if (settings["TZ"].is<const char*>())         timezone = settings["TZ"].as<String>();
@@ -1697,24 +1926,66 @@ bool checkForFirmwareUpdate() {
 
 // Draw the primary service line
 void drawPrimaryService(bool showVia) {
+#if defined(DISPLAY_CYD)
+  uint8_t previousTextScale = u8g2.getTextScale();
+  u8g2.setTextScale(1);
+  setRailDetailFont();
+  const int primaryInfoTop = LINE1 + 22;
+  const int primaryBaseline = railDetailBaseline(LINE1);
+  const int primaryInfoBaseline = railDetailBaseline(primaryInfoTop);
+  int destPos;
+  char clipDestination[MAXLOCATIONSIZE+5];
+  char etd[16];
+  char plat[9];
+
+  blankArea(0,LINE1,256,LINE2-LINE1);
+  destPos = u8g2.drawStr(0,primaryBaseline,station.service[0].sTime) + 6;
+  if (showVia) strcpy(clipDestination,station.service[0].via);
+  else {
+    strcpy(clipDestination,station.service[0].destination);
+    if (station.service[0].serviceType == BUS) strcat(clipDestination," ~");  // Add bus icon to destination
+  }
+  int spaceAvailable = SCREEN_WIDTH - destPos - 6;
+  if (getStringWidth(clipDestination) > spaceAvailable) {
+    while (getStringWidth(clipDestination) > (spaceAvailable - 8)) {
+      clipDestination[strlen(clipDestination)-1] = '\0';
+    }
+    if (clipDestination[strlen(clipDestination)-1] == ' ') clipDestination[strlen(clipDestination)-1] = '\0';
+    strcat(clipDestination,"...");
+  }
+  u8g2.drawStr(destPos,primaryBaseline,clipDestination);
+
+  if (isDigit(station.service[0].etd[0])) sprintf(etd,"Exp %s",station.service[0].etd);
+  else strcpy(etd,station.service[0].etd);
+  int etdWidth = getStringWidth(etd) + (etd[strlen(etd)-1]=='1'?1:0);
+  u8g2.drawStr(CYD_DETAIL_STATUS_RIGHT - etdWidth,primaryInfoBaseline,etd);
+
+  if (station.platformAvailable && station.service[0].platform[0] && station.service[0].serviceType == TRAIN && !hidePlatform) {
+    sprintf(plat,"Plat %.3s",station.service[0].platform);
+    u8g2.drawStr(0,primaryInfoBaseline,plat);
+  }
+  u8g2.setTextScale(previousTextScale);
+  return;
+#else
   int destPos;
   char clipDestination[MAXLOCATIONSIZE+5];
   char etd[16];
   char plat[9];
 
   u8g2.setFont(NatRailTall12);
+  const int primaryBaseline = railDetailBaseline(LINE1);
   blankArea(0,LINE1,256,LINE2-LINE1);
-  destPos = u8g2.drawStr(0,LINE1-1,station.service[0].sTime) + 6;
+  destPos = u8g2.drawStr(0,primaryBaseline,station.service[0].sTime) + 6;
   if (isDigit(station.service[0].etd[0])) sprintf(etd,"Exp %s",station.service[0].etd);
   else strcpy(etd,station.service[0].etd);
   int etdWidth = getStringWidth(etd) + (etd[strlen(etd)-1]=='1'?1:0);
-  u8g2.drawStr(SCREEN_WIDTH - etdWidth,LINE1-1,etd);
+  u8g2.drawStr(SCREEN_WIDTH - etdWidth,primaryBaseline,etd);
   int spaceAvailable = SCREEN_WIDTH - destPos - etdWidth - 6;
 
   if (station.platformAvailable && station.service[0].platform[0] && station.service[0].serviceType == TRAIN && !hidePlatform) {
     sprintf(plat,"Plat %.3s",station.service[0].platform);
     int platWidth = getStringWidth(plat) + (plat[strlen(plat)-1]=='1'?1:0);;
-    u8g2.drawStr(SCREEN_WIDTH - etdWidth - platWidth - 7,LINE1-1,plat);
+    u8g2.drawStr(SCREEN_WIDTH - etdWidth - platWidth - 7,primaryBaseline,plat);
     spaceAvailable-=(platWidth+7);
   }
 
@@ -1731,15 +2002,134 @@ void drawPrimaryService(bool showVia) {
     if (clipDestination[strlen(clipDestination)-1] == ' ') clipDestination[strlen(clipDestination)-1] = '\0';
     strcat(clipDestination,"...");
   }
-  u8g2.drawStr(destPos,LINE1-1,clipDestination);
-  // Set font back to standard
-  u8g2.setFont(NatRailSmall9);
+  u8g2.drawStr(destPos,primaryBaseline,clipDestination);
+  setRailDetailFont();
+#endif
 }
+
+#if defined(DISPLAY_CYD)
+void addCydPrimaryMessage(const char *message) {
+  if (!message[0] || cydPrimaryMessageCount >= (int)(sizeof(cydPrimaryMessages) / sizeof(cydPrimaryMessages[0]))) return;
+  strlcpy(cydPrimaryMessages[cydPrimaryMessageCount++],message,sizeof(cydPrimaryMessages[0]));
+}
+
+void drawPrimaryServiceMessage() {
+  u8g2.setTextScale(1);
+  setRailDetailFont();
+  blankArea(0,PRIMARY_MESSAGE_LINE,SCREEN_WIDTH,20);
+  if (!cydPrimaryMessageCount) {
+    displayedPrimaryServiceMessage[0] = '\0';
+    return;
+  }
+
+  const char *message = cydPrimaryMessages[cydPrimaryMessageIndex];
+  if (strcmp(displayedPrimaryServiceMessage,message)) {
+    strlcpy(displayedPrimaryServiceMessage,message,sizeof(displayedPrimaryServiceMessage));
+    primaryServiceMessageScrollX = 0;
+    primaryServiceMessageWidth = getStringWidth(displayedPrimaryServiceMessage);
+    primaryServiceMessageTimer = millis() + 6000;
+  }
+
+  u8g2.setClipWindow(0,PRIMARY_MESSAGE_LINE,SCREEN_WIDTH,PRIMARY_MESSAGE_LINE+20);
+  if (primaryServiceMessageWidth <= SCREEN_WIDTH) {
+    centreText(displayedPrimaryServiceMessage,railDetailBaseline(PRIMARY_MESSAGE_LINE));
+    if (millis() >= primaryServiceMessageTimer) {
+      cydPrimaryMessageIndex = (cydPrimaryMessageIndex + 1) % cydPrimaryMessageCount;
+      displayedPrimaryServiceMessage[0] = '\0';
+    }
+  } else {
+    u8g2.drawStr(primaryServiceMessageScrollX,railDetailBaseline(PRIMARY_MESSAGE_LINE),displayedPrimaryServiceMessage);
+    primaryServiceMessageScrollX--;
+    if (primaryServiceMessageScrollX < -primaryServiceMessageWidth) {
+      cydPrimaryMessageIndex = (cydPrimaryMessageIndex + 1) % cydPrimaryMessageCount;
+      displayedPrimaryServiceMessage[0] = '\0';
+    }
+  }
+  u8g2.setMaxClipWindow();
+}
+
+void drawSecondaryServiceLine(int serviceIndex) {
+  const int serviceBaseline = railDetailBaseline(LINE2);
+  const int infoBaseline = railDetailBaseline(LINE2 + CYD_SECOND_SERVICE_INFO_OFFSET);
+  char clipDestination[MAXLOCATIONSIZE+5];
+  char etd[16];
+  char ordinal[8];
+  char plat[9];
+
+  u8g2.setTextScale(1);
+  setRailDetailFont();
+  blankArea(0,LINE2,SCREEN_WIDTH,LINE3-LINE2);
+
+  if (station.numServices <= 1 || serviceIndex <= 0 || serviceIndex >= station.numServices) return;
+
+  switch (serviceIndex) {
+    case 1:
+      strcpy(ordinal,"2nd ");
+      break;
+    case 2:
+      strcpy(ordinal,"3rd ");
+      break;
+    default:
+      sprintf(ordinal,"%dth ",serviceIndex+1);
+      break;
+  }
+
+  int destPos;
+  if (hideOrdinals) {
+    destPos = u8g2.drawStr(0,serviceBaseline,station.service[serviceIndex].sTime) + 6;
+  } else {
+    int timeX = u8g2.drawStr(0,serviceBaseline,ordinal) + 6;
+    destPos = timeX + u8g2.drawStr(timeX,serviceBaseline,station.service[serviceIndex].sTime) + 6;
+  }
+  strcpy(clipDestination,station.service[serviceIndex].destination);
+  if (station.service[serviceIndex].serviceType == BUS) strcat(clipDestination," ~");
+  int spaceAvailable = SCREEN_WIDTH - destPos - 6;
+  if (getStringWidth(clipDestination) > spaceAvailable) {
+    while (getStringWidth(clipDestination) > spaceAvailable - 5) {
+      clipDestination[strlen(clipDestination)-1] = '\0';
+    }
+    if (clipDestination[strlen(clipDestination)-1] == ' ') clipDestination[strlen(clipDestination)-1] = '\0';
+    strcat(clipDestination,"...");
+  }
+  u8g2.drawStr(destPos,serviceBaseline,clipDestination);
+
+  if (station.platformAvailable && !hidePlatform && station.service[serviceIndex].platform[0] && station.service[serviceIndex].serviceType == TRAIN) {
+    sprintf(plat,"Plat %.3s",station.service[serviceIndex].platform);
+    u8g2.drawStr(0,infoBaseline,plat);
+  }
+  if (isDigit(station.service[serviceIndex].etd[0])) sprintf(etd,"Exp %s",station.service[serviceIndex].etd);
+  else strcpy(etd,station.service[serviceIndex].etd);
+  int etdWidth = getStringWidth(etd) + (etd[strlen(etd)-1]=='1'?1:0);
+  u8g2.drawStr(CYD_DETAIL_STATUS_RIGHT - etdWidth,infoBaseline,etd);
+}
+
+inline void drawSecondServiceLine() {
+  drawSecondaryServiceLine(1);
+}
+
+void drawCydServicePanel(bool showVia) {
+  blankArea(0,LINE1,SCREEN_WIDTH,LINE3-LINE1);
+  drawPrimaryService(showVia);
+  if (station.numServices > 1) {
+    if (cydSecondaryServiceIndex <= 0 || cydSecondaryServiceIndex >= station.numServices) {
+      cydSecondaryServiceIndex = 1;
+    }
+    drawSecondaryServiceLine(cydSecondaryServiceIndex);
+  }
+}
+#endif
 
 // Draw the secondary service line
 void drawServiceLine(int line, int y) {
+#if defined(DISPLAY_CYD)
+  uint8_t previousTextScale = u8g2.getTextScale();
+  u8g2.setTextScale(1);
+  const int detailBaseline = railDetailBaseline(y);
+#else
+  const int detailBaseline = railDetailBaseline(y);
+#endif
   char clipDestination[MAXLOCATIONSIZE+5];
-  char ordinal[5];
+  char ordinal[8];
   char plat[9];
   int destPos;
 
@@ -1755,27 +2145,27 @@ void drawServiceLine(int line, int y) {
       break;
   }
 
-  u8g2.setFont(NatRailSmall9);
+  setRailDetailFont();
   blankArea(0,y,256,9);
 
   if (line<station.numServices) {
     if (hideOrdinals) {
-      destPos = u8g2.drawStr(0,y-1,station.service[line].sTime) + 6;
+      destPos = u8g2.drawStr(0,detailBaseline,station.service[line].sTime) + 6;
     } else {
-      u8g2.drawStr(0,y-1,ordinal);
-      destPos = u8g2.drawStr(21,y-1,station.service[line].sTime) + 25;
+      int timeX = u8g2.drawStr(0,detailBaseline,ordinal) + 6;
+      destPos = timeX + u8g2.drawStr(timeX,detailBaseline,station.service[line].sTime) + 6;
     }
     char etd[16];
     if (isDigit(station.service[line].etd[0])) sprintf(etd,"Exp %s",station.service[line].etd);
     else strcpy(etd,station.service[line].etd);
     int etdWidth = getStringWidth(etd) + (etd[strlen(etd)-1]=='1'?1:0);
-    u8g2.drawStr(SCREEN_WIDTH - etdWidth,y-1,etd);
+    u8g2.drawStr(SCREEN_WIDTH - etdWidth,detailBaseline,etd);
     int spaceAvailable = SCREEN_WIDTH - destPos - etdWidth - 6;
 
     if (station.platformAvailable && !hidePlatform && station.service[line].platform[0] && station.service[line].serviceType == TRAIN) {
       sprintf(plat,"Plat %.3s",station.service[line].platform);
       int platWidth = getStringWidth(plat) + (plat[strlen(plat)-1]=='1'?1:0);
-      u8g2.drawStr(SCREEN_WIDTH - etdWidth - platWidth - 7,y-1,plat);
+      u8g2.drawStr(SCREEN_WIDTH - etdWidth - platWidth - 7,detailBaseline,plat);
       spaceAvailable-=(platWidth+7);
     }
     // work out if we need to clip the destination
@@ -1789,20 +2179,26 @@ void drawServiceLine(int line, int y) {
       if (clipDestination[strlen(clipDestination)-1] == ' ') clipDestination[strlen(clipDestination)-1] = '\0';
       strcat(clipDestination,"...");
     }
-    u8g2.drawStr(destPos,y-1,clipDestination);
+    u8g2.drawStr(destPos,detailBaseline,clipDestination);
   } else {
     if (weatherMsg[0] && line==station.numServices) {
       // We're showing the weather
-      centreText(weatherMsg,y-1);
+      centreText(weatherMsg,detailBaseline);
     } else {
       // We're showing the mandatory attribution
-      centreText(useRDMclient?rdgAttribution:nrAttributionn,y-1);
+      centreText(useRDMclient?rdgAttribution:nrAttributionn,detailBaseline);
     }
   }
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(previousTextScale);
+#endif
 }
 
 // Draw the initial Departures Board
 void drawStationBoard() {
+#if defined(DISPLAY_CYD)
+  u8g2.setFontPosBaseline();
+#endif
   if (showClockNoServices && station.numServices == 0) {
     if (!noServiceClockIsActive) firstLoad = true;
     noServiceClockIsActive = true;
@@ -1811,6 +2207,13 @@ void drawStationBoard() {
     noServiceClockIsActive = false;
   }
   numMessages=0;
+#if defined(DISPLAY_CYD)
+  cydPrimaryMessageCount=0;
+  cydPrimaryMessageIndex=0;
+  displayedPrimaryServiceMessage[0]='\0';
+  cydSecondaryServiceIndex=1;
+  serviceTimer = millis() + 15000;
+#endif
   if (firstLoad) {
     // Clear the entire screen for the first load since boot up/wake from sleep
     u8g2.clearBuffer();
@@ -1822,7 +2225,11 @@ void drawStationBoard() {
     blankArea(0,LINE0,256,LINE2-1);
   }
 
+#if defined(DISPLAY_CYD)
+  msgLine = LINE3;
+#else
   msgLine = LINE2;
+#endif
   msgMargin = 0;
   msgWidth = SCREEN_WIDTH;
 
@@ -1833,7 +2240,11 @@ void drawStationBoard() {
     isShowingVia=false;
     viaTimer=millis()+300000;  // effectively don't check for via
     if (station.numServices) {
+#if defined(DISPLAY_CYD)
+      drawCydServicePanel(false);
+#else
       drawPrimaryService(false);
+#endif
       if (station.service[0].via[0]) viaTimer=millis()+4000;
       if (station.service[0].isCancelled) {
         // This train is cancelled
@@ -1843,11 +2254,18 @@ void drawStationBoard() {
         }
       } else {
         // The train is not cancelled
+#if defined(DISPLAY_CYD)
+        if (station.serviceMessage[0]) {
+          strcpy(line2[numMessages],station.serviceMessage);
+          numMessages++;
+        }
+#else
         if (station.service[0].isDelayed && station.serviceMessage[0]) {
           // The train is delayed and there's a reason
           strcpy(line2[0],station.serviceMessage);
           numMessages++;
         }
+#endif
         if (station.calling[0]) {
           // Add the calling stops message
           sprintf(line2[numMessages],"Calling at: %s",station.calling);
@@ -1908,9 +2326,16 @@ void drawStationBoard() {
         }
       }
 
+#if defined(DISPLAY_CYD)
+      for (int i=0;i<numMessages;i++) addCydPrimaryMessage(line2[i]);
+      numMessages=0;
+#endif
+
+#if !defined(DISPLAY_CYD)
       if (noScrolling && station.numServices>1) {
         drawServiceLine(1,LINE2);
       }
+#endif
     } else {
       blankArea(0,LINE2,256,LINE4-LINE2);
       u8g2.setFont(NatRailTall12);
@@ -1937,8 +2362,12 @@ void drawStationBoard() {
 
   // Add any nrcc messages
   for (int i=0;i<messages.numMessages;i++) {
+#if defined(DISPLAY_CYD)
+    addCydPrimaryMessage(messages.messages[i]);
+#else
     strcpy(line2[numMessages],messages.messages[i]);
     numMessages++;
+#endif
   }
 
   // Check if RSS should be added after nrcc messages
@@ -1946,11 +2375,44 @@ void drawStationBoard() {
     strcpy(line2[numMessages++],rssMessage);
   }
 
+#if defined(DISPLAY_CYD)
+  if (weatherEnabled && weatherMsg[0]) {
+    strcpy(line2[numMessages++],weatherMsg);
+  }
+#endif
+
   // Setup for the first message to rollover to
   isScrollingStops=false;
   currentMessage=numMessages-1;
 
-  u8g2.setFont(NatRailSmall9);
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(1);
+  setRailDetailFont();
+  u8g2.setMaxClipWindow();
+  if (!noServiceClockIsActive && station.numServices) drawPrimaryServiceMessage();
+  if (numMessages) {
+    currentMessage=0;
+    scrollStopsXpos=msgMargin;
+    scrollStopsLength=getStringWidth(line2[currentMessage]);
+    blankArea(msgMargin,msgLine,msgWidth,20);
+    u8g2.setClipWindow(msgMargin,msgLine,SCREEN_WIDTH,msgLine+20);
+    if (scrollStopsLength < msgWidth) {
+      centreText(line2[currentMessage],railDetailBaseline(msgLine),msgMargin,msgWidth);
+    } else {
+      u8g2.drawStr(scrollStopsXpos,railDetailBaseline(msgLine),line2[currentMessage]);
+    }
+    u8g2.setMaxClipWindow();
+    timer=millis()+6000;
+  } else {
+    blankArea(msgMargin,msgLine,msgWidth,20);
+  }
+  displayedTime[0] = '\0';
+  drawCurrentTime();
+  setRailDetailFont();
+  u8g2.setFontPosBaseline();
+#else
+  setRailDetailFont();
+#endif
   u8g2.sendBuffer();
 }
 
@@ -2277,6 +2739,158 @@ void handleStreamGzipFlashFile(String filename, const uint8_t *filedata, size_t 
   request->send(response);
 }
 
+// Screenshot capture in BMP format from the U8g2 display buffer
+void handleScreenshot(AsyncWebServerRequest *request) {
+#if defined(DISPLAY_CYD)
+  const uint16_t width = CYD_NATIVE_WIDTH;
+  const uint16_t height = CYD_NATIVE_HEIGHT;
+  const uint8_t tile_width = CYD_NATIVE_TILE_WIDTH;
+  uint8_t fgR = ((cyd_fg_color >> 11) & 0x1F) * 255 / 31;
+  uint8_t fgG = ((cyd_fg_color >> 5) & 0x3F) * 255 / 63;
+  uint8_t fgB = (cyd_fg_color & 0x1F) * 255 / 31;
+#else
+  const uint16_t width = 256;
+  const uint16_t height = 64;
+  const uint8_t tile_width = 32;
+  uint8_t fgR = 255;
+  uint8_t fgG = 176;
+  uint8_t fgB = 0;
+#endif
+
+  const uint16_t row_bytes = width / 8;
+  const uint32_t fileSize = 62 + (uint32_t)row_bytes * height;
+  const uint8_t *u8g2_buf = u8g2.getBufferPtr();
+
+  std::array<uint8_t, 62> header = {};
+  header[0] = 'B';
+  header[1] = 'M';
+  header[2] = (uint8_t)(fileSize);
+  header[3] = (uint8_t)(fileSize >> 8);
+  header[4] = (uint8_t)(fileSize >> 16);
+  header[5] = (uint8_t)(fileSize >> 24);
+  header[10] = 62; // bfOffBits
+
+  header[14] = 40; // biSize
+  header[18] = (uint8_t)(width);
+  header[19] = (uint8_t)(width >> 8);
+  header[22] = (uint8_t)(height);
+  header[23] = (uint8_t)(height >> 8);
+  header[26] = 1;  // biPlanes
+  header[28] = 1;  // biBitCount (1-bit monochrome/indexed)
+  uint32_t imageSize = (uint32_t)row_bytes * height;
+  header[34] = (uint8_t)(imageSize);
+  header[35] = (uint8_t)(imageSize >> 8);
+  header[36] = (uint8_t)(imageSize >> 16);
+  header[37] = (uint8_t)(imageSize >> 24);
+  header[38] = 0x13; header[39] = 0x0B; // biXPelsPerMeter = 2835
+  header[42] = 0x13; header[43] = 0x0B; // biYPelsPerMeter = 2835
+  header[46] = 2;  // biClrUsed
+  header[50] = 2;  // biClrImportant
+
+  // Palette 0: Black (0, 0, 0, 0)
+  // Palette 1: Foreground (B, G, R, 0)
+  header[58] = fgB;
+  header[59] = fgG;
+  header[60] = fgR;
+  header[61] = 0;
+
+  AsyncWebServerResponse *response = request->beginResponse("image/bmp", fileSize,
+    [header, u8g2_buf, width, height, tile_width, row_bytes, fileSize](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      size_t written = 0;
+      while (written < maxLen && (index + written) < fileSize) {
+        size_t pos = index + written;
+        if (pos < 62) {
+          buffer[written] = header[pos];
+        } else {
+          size_t pixel_index = pos - 62;
+          size_t row = pixel_index / row_bytes;
+          size_t bx = pixel_index % row_bytes;
+          int y = (height - 1) - row;
+          uint8_t tile_y = y / 8;
+          uint8_t vy = y % 8;
+          uint8_t bit_mask = 1 << vy;
+          const uint8_t *tptr = u8g2_buf + (tile_y * tile_width * 8) + (bx * 8);
+          uint8_t bmp_byte = 0;
+          for (uint8_t sx = 0; sx < 8; sx++) {
+            if (tptr[sx] & bit_mask) {
+              bmp_byte |= (0x80 >> sx);
+            }
+          }
+          buffer[written] = bmp_byte;
+        }
+        written++;
+      }
+      return written;
+    }
+  );
+  response->addHeader("Content-Disposition", "inline; filename=\"screenshot.bmp\"");
+  response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  request->send(response);
+}
+
+// Dump screenshot to Serial console as hex stream
+void dumpSerialScreenshot() {
+#if defined(DISPLAY_CYD)
+  const uint16_t width = CYD_NATIVE_WIDTH;
+  const uint16_t height = CYD_NATIVE_HEIGHT;
+  const uint8_t tile_width = CYD_NATIVE_TILE_WIDTH;
+  uint8_t fgR = ((cyd_fg_color >> 11) & 0x1F) * 255 / 31;
+  uint8_t fgG = ((cyd_fg_color >> 5) & 0x3F) * 255 / 63;
+  uint8_t fgB = (cyd_fg_color & 0x1F) * 255 / 31;
+#else
+  const uint16_t width = 256;
+  const uint16_t height = 64;
+  const uint8_t tile_width = 32;
+  uint8_t fgR = 255;
+  uint8_t fgG = 176;
+  uint8_t fgB = 0;
+#endif
+
+  const uint16_t row_bytes = width / 8;
+  const uint32_t fileSize = 62 + (uint32_t)row_bytes * height;
+  const uint8_t *u8g2_buf = u8g2.getBufferPtr();
+
+  Serial.printf("\n--- SNAPSHOT START (%ux%u BMP, %u bytes) ---\n", width, height, fileSize);
+  if (wifiConnected) {
+    Serial.printf("Direct download: %s/screenshot.bmp\n", myUrl);
+  }
+
+  uint8_t header[62] = {0};
+  header[0] = 'B'; header[1] = 'M';
+  header[2] = (uint8_t)(fileSize); header[3] = (uint8_t)(fileSize >> 8);
+  header[4] = (uint8_t)(fileSize >> 16); header[5] = (uint8_t)(fileSize >> 24);
+  header[10] = 62;
+  header[14] = 40;
+  header[18] = (uint8_t)(width); header[19] = (uint8_t)(width >> 8);
+  header[22] = (uint8_t)(height); header[23] = (uint8_t)(height >> 8);
+  header[26] = 1; header[28] = 1;
+  uint32_t imageSize = (uint32_t)row_bytes * height;
+  header[34] = (uint8_t)(imageSize); header[35] = (uint8_t)(imageSize >> 8);
+  header[36] = (uint8_t)(imageSize >> 16); header[37] = (uint8_t)(imageSize >> 24);
+  header[38] = 0x13; header[39] = 0x0B;
+  header[42] = 0x13; header[43] = 0x0B;
+  header[46] = 2; header[50] = 2;
+  header[58] = fgB; header[59] = fgG; header[60] = fgR;
+
+  for (size_t i = 0; i < 62; i++) {
+    Serial.printf("%02x", header[i]);
+  }
+  for (int y = height - 1; y >= 0; y--) {
+    uint8_t tile_y = y / 8;
+    uint8_t vy = y % 8;
+    uint8_t bit_mask = 1 << vy;
+    for (uint8_t bx = 0; bx < tile_width; bx++) {
+      const uint8_t *tptr = u8g2_buf + (tile_y * tile_width * 8) + (bx * 8);
+      uint8_t bmp_byte = 0;
+      for (uint8_t sx = 0; sx < 8; sx++) {
+        if (tptr[sx] & bit_mask) bmp_byte |= (0x80 >> sx);
+      }
+      Serial.printf("%02x", bmp_byte);
+    }
+  }
+  Serial.println("\n--- SNAPSHOT END ---");
+}
+
 /*
  * Expose the file system via the Web GUI with some basic functions for directory browsing, file reading and deletion.
  */
@@ -2461,6 +3075,7 @@ void handleInfo(AsyncWebServerRequest *request) {
   if (weatherEnabled) {
     message+="Last weather result: " + getResultCodeText(lastWeatherUpdateResult) + "\nNext weather update: " + String(nextWeatherUpdate-millis()) + "ms";
   }
+  message+="\nScreenshot: " + String(myUrl) + "/screenshot.bmp";
   sendResponse(200,message,request);
 }
 
@@ -2497,7 +3112,7 @@ void handleFactoryReset(AsyncWebServerRequest *request) {
   restartTimer.once(1, []() { WiFiManager wm; wm.resetSettings(); LittleFS.format(); ESP.restart();});
 }
 
-// Interactively change the brightness of the OLED panel (called from index.htm)
+// Interactively change the CYD backlight (called from index.htm)
 void handleBrightness(AsyncWebServerRequest *request) {
   if (request->hasParam("b")) {
     int level = request->getParam("b")->value().toInt();
@@ -2510,6 +3125,27 @@ void handleBrightness(AsyncWebServerRequest *request) {
   }
   sendResponse(200,"invalid request",request);
 }
+
+// Interactively change the CYD display appearance (called from index.htm)
+#if defined(DISPLAY_CYD)
+void handleDisplaySettings(AsyncWebServerRequest *request) {
+  if (request->hasParam("color")) {
+    int col = request->getParam("color")->value().toInt();
+    if (col >= 0 && col <= 5) {
+      u8g2.setColorScheme((CydColorScheme)col);
+      u8g2.sendBuffer();
+    }
+  }
+  if (request->hasParam("scale")) {
+    int scl = request->getParam("scale")->value().toInt();
+    if (scl >= 0 && scl <= 1) {
+      u8g2.setScaleMode((CydScaleMode)scl);
+      u8g2.sendBuffer();
+    }
+  }
+  sendResponse(200,"OK",request);
+}
+#endif
 
 // Web GUI has requested updates be installed
 void handleOtaUpdate(AsyncWebServerRequest *request) {
@@ -2634,6 +3270,11 @@ void handleStationPicker(AsyncWebServerRequest *request)
 // The main processing cycle for the National Rail Departures Board
 //
 void departureBoardLoop() {
+#if defined(DISPLAY_CYD)
+  u8g2.setFontPosBaseline();
+  u8g2.setTextScale(1);
+  setRailDetailFont();
+#endif
 
   if (millis() > nextDataUpdate && !fetchInProgress && lastUpdateResult != UPD_UNAUTHORISED && !isSleeping && wifiConnected) {
     if (!firstLoad) showUpdateIcon(true);
@@ -2654,8 +3295,13 @@ void departureBoardLoop() {
     updateRailDepartures();
     if (station.numServices) {
       if (!station.service[0].via[0]) isShowingVia=false;
+#if defined(DISPLAY_CYD)
+      drawCydServicePanel(isShowingVia);
+      u8g2.updateDisplayArea(0, CYD_TILE_SERVICE_PANEL_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_SERVICE_PANEL_H);
+#else
       drawPrimaryService(isShowingVia);
       u8g2.updateDisplayArea(0,1,32,3);
+#endif
       if (station.calling[0] && showFullCalling) {
         for (int i=0;i<numMessages;i++) {
           if (strncmp("Calling",line2[i],7)==0) {
@@ -2666,9 +3312,12 @@ void departureBoardLoop() {
         }
       }
     }
+#if defined(DISPLAY_CYD)
+#else
     if (noScrolling && station.numServices>1) {
       drawServiceLine(1,LINE2);
     }
+#endif
   }
 
   if (fetchComplete && lastUpdateResult != UPD_SEC_CHANGE && !isScrollingService && !isSleeping) {
@@ -2703,8 +3352,13 @@ void departureBoardLoop() {
     currentMessage++;
     if (currentMessage>=numMessages) currentMessage=0;
     scrollStopsXpos=msgMargin;
+#if defined(DISPLAY_CYD)
+    scrollStopsYpos=0;
+    scrollStopsLength = getStringWidth(line2[currentMessage]);
+#else
     scrollStopsYpos=10;
     scrollStopsLength = getStringWidth(line2[currentMessage]);
+#endif
     isScrollingStops=true;
     if (strncmp("Calling",line2[currentMessage],7)==0) isShowingCalling=true; else isShowingCalling=false;
   }
@@ -2713,13 +3367,40 @@ void departureBoardLoop() {
   if (millis()>viaTimer) {
     if (station.numServices && station.service[0].via[0] && !isSleeping && lastUpdateResult!=UPD_UNAUTHORISED && lastUpdateResult!=UPD_DATA_ERROR) {
       isShowingVia = !isShowingVia;
+#if defined(DISPLAY_CYD)
+      drawCydServicePanel(isShowingVia);
+      u8g2.updateDisplayArea(0, CYD_TILE_SERVICE_PANEL_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_SERVICE_PANEL_H);
+#else
       drawPrimaryService(isShowingVia);
       u8g2.updateDisplayArea(0,1,32,3);
+#endif
       if (isShowingVia) viaTimer = millis()+3000; else viaTimer = millis()+4000;
     }
   }
 
+#if defined(DISPLAY_CYD)
+  if (!isSleeping && station.numServices) drawPrimaryServiceMessage();
+#endif
+
   if (millis()>serviceTimer && !isScrollingService && !isSleeping && !noServiceClockIsActive && !noDataLoaded && lastUpdateResult!=UPD_UNAUTHORISED && lastUpdateResult!=UPD_DATA_ERROR) {
+#if defined(DISPLAY_CYD)
+    if (station.numServices > 2) {
+      cydSecondaryServiceIndex++;
+      if (cydSecondaryServiceIndex >= station.numServices) {
+        cydSecondaryServiceIndex = 1;
+      }
+      drawSecondaryServiceLine(cydSecondaryServiceIndex);
+      u8g2.updateDisplayArea(0, CYD_TILE_SECONDARY_SERVICE_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_SECONDARY_SERVICE_H);
+      serviceTimer = millis() + 15000;
+    } else {
+      if (cydSecondaryServiceIndex != 1 && station.numServices == 2) {
+        cydSecondaryServiceIndex = 1;
+        drawSecondaryServiceLine(1);
+        u8g2.updateDisplayArea(0, CYD_TILE_SECONDARY_SERVICE_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_SECONDARY_SERVICE_H);
+      }
+      serviceTimer = millis() + 30000;
+    }
+#else
     // Need to change to the next service if there is one
     if ((station.numServices <= 1 || (station.numServices==2 && noScrolling)) && !weatherMsg[0]) {
       // There's no other services and no weather so just so static attribution.
@@ -2737,26 +3418,44 @@ void departureBoardLoop() {
       scrollServiceYpos=10;
       isScrollingService = true;
     }
+#endif
   }
 
   if (isScrollingStops && millis()>timer && !isSleeping && !noScrolling) {
+#if defined(DISPLAY_CYD)
+    blankArea(msgMargin,msgLine,msgWidth,20);
+    u8g2.setClipWindow(msgMargin,msgLine,SCREEN_WIDTH,msgLine+20);
+    if (scrollStopsLength < msgWidth) {
+      centreText(line2[currentMessage],railDetailBaseline(msgLine),msgMargin,msgWidth);
+      timer=millis()+6000;
+      isScrollingStops=false;
+    } else {
+      u8g2.drawStr(scrollStopsXpos,railDetailBaseline(msgLine),line2[currentMessage]);
+      scrollStopsXpos--;
+      if (scrollStopsXpos < -scrollStopsLength+msgMargin) {
+        isScrollingStops=false;
+        timer=millis()+500;
+      }
+    }
+    u8g2.setMaxClipWindow();
+#else
     blankArea(msgMargin,msgLine,msgWidth,9);
-    u8g2.setClipWindow(msgMargin,msgLine,SCREEN_WIDTH,msgLine+9);
+    setDisplayClipWindow(msgMargin,msgLine,SCREEN_WIDTH,msgLine+9);
     if (scrollStopsYpos) {
       // we're scrolling up the message initially
       // if the previous message didn't scroll then we need to scroll it up off the screen
       if (prevScrollStopsLength && prevScrollStopsLength<msgWidth) {
-        if (strncmp("Calling",line2[prevMessage],7)) centreText(line2[prevMessage],scrollStopsYpos+msgLine-12,msgMargin,msgWidth);
-        else u8g2.drawStr(msgMargin,scrollStopsYpos+msgLine-12,line2[prevMessage]); // Handle very short calling at lists
+        if (strncmp("Calling",line2[prevMessage],7)) centreText(line2[prevMessage],railDetailScrollBaseline(scrollStopsYpos+msgLine-12),msgMargin,msgWidth);
+        else u8g2.drawStr(msgMargin,railDetailScrollBaseline(scrollStopsYpos+msgLine-12),line2[prevMessage]); // Handle very short calling at lists
       }
-      if (scrollStopsLength<msgWidth && strncmp("Calling",line2[currentMessage],7)) centreText(line2[currentMessage],scrollStopsYpos+msgLine-2,msgMargin,msgWidth); // Centre text if it fits
-      else u8g2.drawStr(msgMargin,scrollStopsYpos+msgLine-2,line2[currentMessage]);
+      if (scrollStopsLength<msgWidth && strncmp("Calling",line2[currentMessage],7)) centreText(line2[currentMessage],railDetailScrollBaseline(scrollStopsYpos+msgLine-2),msgMargin,msgWidth); // Centre text if it fits
+      else u8g2.drawStr(msgMargin,railDetailScrollBaseline(scrollStopsYpos+msgLine-2),line2[currentMessage]);
       scrollStopsYpos--;
       if (scrollStopsYpos==0) timer=millis()+1500;
     } else {
       // we're scrolling left
-      if (scrollStopsLength<msgWidth && strncmp("Calling",line2[currentMessage],7)) centreText(line2[currentMessage],msgLine-1,msgMargin,msgWidth); // Centre text if it fits
-      else u8g2.drawStr(scrollStopsXpos,msgLine-1,line2[currentMessage]);
+      if (scrollStopsLength<msgWidth && strncmp("Calling",line2[currentMessage],7)) centreText(line2[currentMessage],railDetailScrollBaseline(msgLine-1),msgMargin,msgWidth); // Centre text if it fits
+      else u8g2.drawStr(scrollStopsXpos,railDetailScrollBaseline(msgLine-1),line2[currentMessage]);
       if (scrollStopsLength < msgWidth) {
         // we don't need to scroll this message, it fits so just set a longer timer
         timer=millis()+6000;
@@ -2770,13 +3469,14 @@ void departureBoardLoop() {
       }
     }
     u8g2.setMaxClipWindow();
+#endif
   }
 
   if (isScrollingService && millis()>serviceTimer && !isSleeping && !noServiceClockIsActive) {
     blankArea(0,LINE3,256,9);
     if (scrollServiceYpos) {
       // we're scrolling the service into view
-      u8g2.setClipWindow(0,LINE3,256,LINE3+9);
+      setDisplayClipWindow(0,LINE3,256,LINE3+9);
       // if the prev service is showing, we need to scroll it up off
       if (prevService>0) drawServiceLine(prevService,scrollServiceYpos+LINE3-12);
       drawServiceLine(line3Service,scrollServiceYpos+LINE3-1);
@@ -2797,9 +3497,26 @@ void departureBoardLoop() {
     // so we need to wait any additional ms not used by processing so far before sending the frame to the display controller
     delayMs = frameTimeRail - (millis()-refreshTimer);
     if (delayMs>0) delay(delayMs);
+#if defined(DISPLAY_CYD)
+    if (!noServiceClockIsActive) {
+      if (cydPrimaryMessageCount > 0) {
+        u8g2.updateDisplayArea(0, CYD_TILE_PRIMARY_MSG_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_PRIMARY_MSG_H);
+      }
+      if (isScrollingStops) {
+        u8g2.updateDisplayArea(0, CYD_TILE_BOTTOM_TICKER_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_BOTTOM_TICKER_H);
+      }
+    } else {
+      u8g2.updateDisplayArea(0, CYD_TILE_CLOCK_Y, CYD_NATIVE_TILE_WIDTH, CYD_TILE_CLOCK_H);
+    }
+#else
     if (!noServiceClockIsActive) u8g2.updateDisplayArea(0,3,32,4); else u8g2.updateDisplayArea(0,6,32,2);
+#endif
     refreshTimer=millis();
   }
+#if defined(DISPLAY_CYD)
+  u8g2.setTextScale(2);
+  u8g2.setFont(NatRailSmall9);
+#endif
 }
 
 //
@@ -2902,7 +3619,7 @@ void undergroundArrivalsLoop() {
     blankArea(0,ULINE3,256,10);
     if (scrollServiceYpos) {
       // we're scrolling up the message initially
-      u8g2.setClipWindow(0,ULINE3,256,ULINE3+10);
+      setDisplayClipWindow(0,ULINE3,256,ULINE3+10);
       // Was the previous display a service?
       if (prevService<station.numServices) {
         drawUndergroundService(prevService,scrollServiceYpos+ULINE3-13);
@@ -2949,11 +3666,11 @@ void undergroundArrivalsLoop() {
     blankArea(0,ULINE1,256,ULINE3-ULINE1);
     fullRefresh = true;
     // we're scrolling the primary service(s) into view
-    u8g2.setClipWindow(0,ULINE1,256,ULINE1+10);
+    setDisplayClipWindow(0,ULINE1,256,ULINE1+10);
     if (station.numServices) drawUndergroundService(0,scrollPrimaryYpos+ULINE1-1);
     else centreText("There are no scheduled arrivals at this station.",scrollPrimaryYpos+ULINE1-1);
     if (station.numServices>1) {
-      u8g2.setClipWindow(0,ULINE2,256,ULINE2+10);
+      setDisplayClipWindow(0,ULINE2,256,ULINE2+10);
       drawUndergroundService(1,scrollPrimaryYpos+ULINE2-1);
     }
     u8g2.setMaxClipWindow();
@@ -3058,7 +3775,7 @@ void busDeparturesLoop() {
     if (scrollServiceYpos) {
       blankArea(0,ULINE3,256,10);
       // we're scrolling up the message
-      u8g2.setClipWindow(0,ULINE3,256,ULINE3+10);
+      setDisplayClipWindow(0,ULINE3,256,ULINE3+10);
       // Was the previous display a service?
       if (prevService<station.numServices) {
         drawBusService(prevService,scrollServiceYpos+ULINE3-13,busDestX);
@@ -3085,19 +3802,19 @@ void busDeparturesLoop() {
     blankArea(0,ULINE1,256,ULINE3-ULINE1+10);
     fullRefresh = true;
     // we're scrolling the primary service(s) into view
-    u8g2.setClipWindow(0,ULINE1,256,ULINE1+10);
+    setDisplayClipWindow(0,ULINE1,256,ULINE1+10);
     if (station.numServices) drawBusService(0,scrollPrimaryYpos+ULINE1-1,busDestX);
     else centreText("There are no scheduled services at this stop.",scrollPrimaryYpos+ULINE1-1);
     if (station.numServices>1) {
-      u8g2.setClipWindow(0,ULINE2,256,ULINE2+10);
+      setDisplayClipWindow(0,ULINE2,256,ULINE2+10);
       drawBusService(1,scrollPrimaryYpos+ULINE2-1,busDestX);
     }
     if (station.numServices>2) {
-      u8g2.setClipWindow(0,ULINE3,256,ULINE3+10);
+      setDisplayClipWindow(0,ULINE3,256,ULINE3+10);
       drawBusService(2,scrollPrimaryYpos+ULINE3-1,busDestX);
     } else if (station.numServices<3 && messages.numMessages==1) {
       // scroll up the attribution once...
-      u8g2.setClipWindow(0,ULINE3,256,ULINE3+10);
+      setDisplayClipWindow(0,ULINE3,256,ULINE3+10);
       centreText(btAttribution,scrollPrimaryYpos+ULINE3-1);
     }
     u8g2.setMaxClipWindow();
@@ -3177,7 +3894,10 @@ void setup(void) {
   // These are the default wsdl XML SOAP entry points. They can be overridden in the config.json file if necessary
   strlcpy(wsdlHost,"lite.realtime.nationalrail.co.uk",sizeof(wsdlHost));
   strlcpy(wsdlAPI,"/OpenLDBWS/wsdl.aspx?ver=2021-11-01",sizeof(wsdlAPI));
-  u8g2.begin();                       // Start the OLED panel
+  u8g2.begin();
+#if defined(DISPLAY_CYD)
+  button.begin();
+#endif
   u8g2.setContrast(brightness);       // Initial brightness
   u8g2.setDrawColor(1);               // Only a monochrome display, so set the colour to "on"
   u8g2.setFontMode(1);                // Transparent fonts
@@ -3194,7 +3914,7 @@ void setup(void) {
   strcpy(tflAppKey,"");                       // No default TfL app_key
   loadApiKeys();                              // Load the API keys from the apiKeys.json
   loadConfig(true);                           // Load the configuration settings from config.json
-  u8g2.setContrast(brightness);               // Set the panel brightness to the user saved level
+  u8g2.setContrast(brightness);               // Set the user-saved display brightness
   if (flipScreen) u8g2.setFlipMode(1);
   u8g2.clearBuffer();
   u8g2.drawXBM(81,0,gadeclogo_width,gadeclogo_height,gadeclogo_bits);
@@ -3244,7 +3964,7 @@ void setup(void) {
   WiFi.localIP().toString().toCharArray(ipBuff,sizeof(ipBuff));   // Get the IP address of the ESP32
   centreText(ipBuff,53);                                          // Display the IP address
   progressBar("Wi-Fi Connected",30);
-  u8g2.sendBuffer();                                              // Send to OLED panel
+  u8g2.sendBuffer();                                              // Send to CYD panel
 
   // Configure the local webserver paths
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){handleRoot(request);});
@@ -3260,6 +3980,14 @@ void setup(void) {
   server.on("/stationpicker", HTTP_GET, [](AsyncWebServerRequest *request){handleStationPicker(request);});
   server.on("/firmware", HTTP_GET, [](AsyncWebServerRequest *request){handleFirmwareInfo(request);});
   server.on("/brightness", HTTP_GET, [](AsyncWebServerRequest *request){handleBrightness(request);});
+#if defined(DISPLAY_CYD)
+  server.on("/display", HTTP_GET, [](AsyncWebServerRequest *request){handleDisplaySettings(request);});
+  server.on("/displayinfo", HTTP_GET, [](AsyncWebServerRequest *request){request->send(200,contentTypeJson,"{\"cyd\":true}");});
+#else
+  server.on("/displayinfo", HTTP_GET, [](AsyncWebServerRequest *request){request->send(200,contentTypeJson,"{\"cyd\":false}");});
+#endif
+  server.on("/screenshot.bmp", HTTP_GET, [](AsyncWebServerRequest *request){handleScreenshot(request);});
+  server.on("/screenshot", HTTP_GET, [](AsyncWebServerRequest *request){handleScreenshot(request);});
   server.on("/ota", HTTP_GET, [](AsyncWebServerRequest *request){handleOtaUpdate(request);});
   server.on("/control", HTTP_GET, [](AsyncWebServerRequest *request){handleControl(request);});
   server.on("/success", HTTP_GET, [](AsyncWebServerRequest *request){request->send(200,contentTypeHtml,successPage);});
@@ -3559,6 +4287,10 @@ void loop(void) {
     }
   } else if (button.wasLongTapped() && longPressClock) {
     NSEclockIsActive = !NSEclockIsActive;
+    if (NSEclockIsActive) {
+      isSleeping = true;
+      drawNSEclock(true);
+    }
   }
 
   if (millis()-lastTimeUpdate >= 100) {
@@ -3597,13 +4329,25 @@ void loop(void) {
   // WiFi Status icon
   if (WiFi.status() != WL_CONNECTED && wifiConnected) {
     wifiConnected=false;
+#if defined(DISPLAY_CYD)
+    u8g2.setFont(NatRailTall12);
+    u8g2.drawStr(10,224,"\x7F");  // No Wifi Icon
+    setRailDetailFont();
+    u8g2.updateDisplayArea(0,CYD_TILE_CLOCK_Y,4,CYD_TILE_CLOCK_H);
+#else
     u8g2.setFont(NatRailSmall9);
     u8g2.drawStr(0,56,"\x7F");  // No Wifi Icon
     u8g2.updateDisplayArea(0,7,1,1);
+#endif
   } else if (WiFi.status() == WL_CONNECTED && !wifiConnected) {
     wifiConnected=true;
+#if defined(DISPLAY_CYD)
+    blankArea(10,LINE4,16,SCREEN_HEIGHT-LINE4);
+    u8g2.updateDisplayArea(0,CYD_TILE_CLOCK_Y,4,CYD_TILE_CLOCK_H);
+#else
     blankArea(0,57,5,7);
     u8g2.updateDisplayArea(0,7,1,1);
+#endif
     updateMyUrl();  // in case our IP changed
   }
 
@@ -3672,6 +4416,14 @@ void loop(void) {
       softResetBoard(MODE_LOADCONFIG);
     }
     nextSchedulerCheck = millis() + 10000;  // ten seconds
+  }
+
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (cmd.equalsIgnoreCase("snap") || cmd.equalsIgnoreCase("screenshot")) {
+      dumpSerialScreenshot();
+    }
   }
 
 }
