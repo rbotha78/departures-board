@@ -2632,7 +2632,7 @@ void drawBusService(int serviceId, int y, int destPos) {
     } else {
       strcpy(etd,station.service[serviceId].sTime);
     }
-    int etdWidth = getStringWidth(etd) + (etd[strlen(etd)-1]=='1'?1:0);
+int etdWidth = etd[0] ? getStringWidth(etd) + (etd[strlen(etd)-1]=='1'?1:0) : 0;
     u8g2.drawStr(CYD_DETAIL_STATUS_RIGHT - etdWidth,baseline,etd);
 
     // work out if we need to clip the destination
